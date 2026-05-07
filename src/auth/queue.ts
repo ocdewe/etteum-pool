@@ -152,6 +152,7 @@ class LoginQueue {
     this.queue = [];
     for (const timer of this.retryTimers.values()) clearTimeout(timer);
     this.retryTimers.clear();
+    if (this.activeJobs === 0) this.processing = false;
     broadcast({ type: "queue_cleared", data: {} });
   }
 
@@ -238,7 +239,11 @@ class LoginQueue {
         // Re-queue with incremented retry count and delay
         const timer = setTimeout(() => {
           this.retryTimers.delete(item.accountId);
-          if (this.hasPendingOrActive(item.accountId)) return;
+          if (this.queue.some((queued) => queued.accountId === item.accountId) || this.activeAccountIds.has(item.accountId)) {
+            if (this.activeJobs === 0 && this.queue.length === 0 && this.retryTimers.size === 0) this.processing = false;
+            this.process();
+            return;
+          }
           this.queue.push({ accountId: item.accountId, retries: item.retries + 1, headless: item.headless });
           this.process();
         }, Math.min(2000 * Math.pow(2, item.retries), 15000)); // exponential backoff

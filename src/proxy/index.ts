@@ -261,10 +261,12 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
   body = { ...body, model: normalizeModelId(body.model) };
   const isStream = body.stream === true;
   const { result, account, provider, durationMs } = await routeRequest(body, isStream);
+  let shouldReleaseTracking = true;
 
-  const promptTokens = result.promptTokens || result.response?.usage?.prompt_tokens || 0;
-  const completionTokens = result.completionTokens || result.response?.usage?.completion_tokens || 0;
-  const totalTokens = result.tokensUsed || result.response?.usage?.total_tokens || promptTokens + completionTokens;
+  try {
+    const promptTokens = result.promptTokens || result.response?.usage?.prompt_tokens || 0;
+    const completionTokens = result.completionTokens || result.response?.usage?.completion_tokens || 0;
+    const totalTokens = result.tokensUsed || result.response?.usage?.total_tokens || promptTokens + completionTokens;
 
   const { creditsUsed, creditSource } = computeCredits(
     provider,
@@ -274,12 +276,12 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
     result.creditSource
   );
 
-  const quotaBefore = Number(account.quotaRemaining || 0);
-  const quotaAfter = isStream
-    ? quotaBefore
-    : quotaBefore > 0
-      ? await pool.decrementQuota(account.id, creditsUsed)
-      : 0;
+    const quotaBefore = Number(account.quotaRemaining || 0);
+    const quotaAfter = isStream
+      ? quotaBefore
+      : quotaBefore > 0
+        ? await pool.decrementQuota(account.id, creditsUsed)
+        : 0;
 
   const logEntry = {
     accountId: account.id,
@@ -305,9 +307,9 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
     accountQuotaAfter: quotaAfter,
   };
 
-  if (isStream && result.stream) {
-    const [created] = await db.insert(requestLogs).values(logEntry).returning();
-    const createdAt = created?.createdAt?.toISOString?.() || new Date().toISOString();
+    if (isStream && result.stream) {
+      const [created] = await db.insert(requestLogs).values(logEntry).returning();
+      const createdAt = created?.createdAt?.toISOString?.() || new Date().toISOString();
 
     broadcast({
       type: "request_started",
@@ -329,8 +331,9 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
       fallbackCreditSource: creditSource,
     });
 
-    return { result, isStream };
-  }
+      shouldReleaseTracking = false;
+      return { result, isStream };
+    }
 
   await db.insert(requestLogs).values(logEntry);
 
@@ -339,8 +342,10 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
     data: { ...logEntry, email: account.email, createdAt: new Date().toISOString() },
   });
 
-  pool.trackRequestEnd(account.id);
-  return { result, isStream };
+    return { result, isStream };
+  } finally {
+    if (shouldReleaseTracking) pool.trackRequestEnd(account.id);
+  }
 }
 
 /**

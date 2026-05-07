@@ -175,8 +175,9 @@ async function readTextStream(
 
 async function waitForProcessExit(proc: ReturnType<typeof Bun.spawn>, timeoutMs = config.authProcessTimeoutMs): Promise<number> {
   let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => {
+    timer = setTimeout(() => {
       timedOut = true;
       try {
         proc.kill();
@@ -190,6 +191,7 @@ async function waitForProcessExit(proc: ReturnType<typeof Bun.spawn>, timeoutMs 
   try {
     return await Promise.race([proc.exited, timeout]);
   } finally {
+    if (timer) clearTimeout(timer);
     if (timedOut) {
       try {
         proc.kill("SIGKILL");

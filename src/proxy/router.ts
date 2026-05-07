@@ -77,8 +77,11 @@ export async function routeRequest(
     }
 
     const startTime = Date.now();
+    let tracked = false;
 
     try {
+      pool.trackRequestStart(account.id);
+      tracked = true;
       const result = stream
         ? await provider.chatCompletionStream(account, request)
         : await provider.chatCompletion(account, request);
@@ -87,9 +90,11 @@ export async function routeRequest(
 
       if (result.success) {
         await pool.markUsed(account.id);
-        pool.trackRequestStart(account.id);
         return { result, account, provider: providerName, durationMs };
       }
+
+      pool.trackRequestEnd(account.id);
+      tracked = false;
 
       // Client-side model errors should not poison accounts. A wrong model ID
       // is a bad request, not an account/session failure, so stop retrying and
@@ -128,6 +133,7 @@ export async function routeRequest(
           if (retryResult.success) {
             await pool.markUsed(account.id);
             pool.trackRequestStart(account.id);
+            tracked = true;
             return {
               result: retryResult,
               account,
@@ -147,6 +153,10 @@ export async function routeRequest(
     } catch (error) {
       const errMsg =
         error instanceof Error ? error.message : String(error);
+      if (tracked) {
+        pool.trackRequestEnd(account.id);
+        tracked = false;
+      }
       if (isNonAccountRequestError(errMsg)) {
         throw error;
       }
