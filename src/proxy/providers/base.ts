@@ -1,4 +1,5 @@
 import type { Account } from "../../db/schema";
+import { config } from "../../config";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -227,7 +228,7 @@ export abstract class BaseProvider {
     }, 0);
   }
 
-  protected async fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  protected async fetchWithTimeout(url: string, init: RequestInit, timeoutMs = config.providerRequestTimeoutMs): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {

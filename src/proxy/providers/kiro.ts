@@ -9,6 +9,7 @@ import {
   type StreamChunk,
 } from "./base";
 import type { Account } from "../../db/schema";
+import { config } from "../../config";
 
 interface KiroTokens {
   access_token?: string;
@@ -441,7 +442,7 @@ export class KiroProvider extends BaseProvider {
         "User-Agent": "KiroIDE/compatible pool-proxy/1.0.0",
         "x-amz-user-agent": "pool-proxy/1.0.0",
       },
-    }, 15000);
+    }, config.providerQuotaTimeoutMs);
   }
 
   private parseUsageLimits(payload: unknown): ProviderQuotaSnapshot {
@@ -621,7 +622,7 @@ export class KiroProvider extends BaseProvider {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-    }, 120_000);
+    });
   }
 
   private async parseResponse(response: Response, request: ChatCompletionRequest): Promise<ProviderResult> {

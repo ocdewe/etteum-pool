@@ -28,13 +28,15 @@ class LoginQueue {
   private totalProcessed = 0;
   private totalSuccess = 0;
   private totalFailed = 0;
+  private activeAccountIds = new Set<number>();
+  private retryTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
   /**
    * Add an account to the login queue
    */
   enqueue(accountId: number, options: { headless?: boolean } = {}): void {
     // Avoid duplicates
-    if (this.queue.some((item) => item.accountId === accountId)) {
+    if (this.hasPendingOrActive(accountId)) {
       return;
     }
     this.queue.push({ accountId, retries: 0, headless: options.headless });
@@ -139,6 +141,7 @@ class LoginQueue {
       totalProcessed: this.totalProcessed,
       totalSuccess: this.totalSuccess,
       totalFailed: this.totalFailed,
+      retrying: this.retryTimers.size,
     };
   }
 
@@ -147,6 +150,8 @@ class LoginQueue {
    */
   clear(): void {
     this.queue = [];
+    for (const timer of this.retryTimers.values()) clearTimeout(timer);
+    this.retryTimers.clear();
     broadcast({ type: "queue_cleared", data: {} });
   }
 
@@ -166,13 +171,15 @@ class LoginQueue {
       if (!item) break;
 
       this.activeJobs++;
+      this.activeAccountIds.add(item.accountId);
       this.processItem(item).finally(() => {
         this.activeJobs--;
+        this.activeAccountIds.delete(item.accountId);
         this.totalProcessed++;
         // Continue processing
         if (this.queue.length > 0) {
           this.process();
-        } else if (this.activeJobs === 0) {
+        } else if (this.activeJobs === 0 && this.retryTimers.size === 0) {
           this.processing = false;
           broadcast({
             type: "queue_complete",
@@ -185,6 +192,12 @@ class LoginQueue {
         }
       });
     }
+  }
+
+  private hasPendingOrActive(accountId: number): boolean {
+    return this.queue.some((item) => item.accountId === accountId)
+      || this.activeAccountIds.has(accountId)
+      || this.retryTimers.has(accountId);
   }
 
   private async processItem(item: QueueItem): Promise<void> {
@@ -223,10 +236,13 @@ class LoginQueue {
     } else {
       if (item.retries < this.maxRetries) {
         // Re-queue with incremented retry count and delay
-        setTimeout(() => {
+        const timer = setTimeout(() => {
+          this.retryTimers.delete(item.accountId);
+          if (this.hasPendingOrActive(item.accountId)) return;
           this.queue.push({ accountId: item.accountId, retries: item.retries + 1, headless: item.headless });
           this.process();
         }, Math.min(2000 * Math.pow(2, item.retries), 15000)); // exponential backoff
+        this.retryTimers.set(item.accountId, timer);
       } else {
         this.totalFailed++;
       }

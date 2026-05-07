@@ -5,7 +5,7 @@ import { broadcast } from "../ws/index";
 import { addAuthLog } from "./logs";
 import { warmupAccount, type WarmupResult } from "./warmup-runner";
 
-type WarmupStatus = "queued" | "processing" | "completed" | "failed";
+type WarmupStatus = "queued" | "processing" | "retrying" | "completed" | "failed";
 
 type QueueItem = {
   accountId: number;
@@ -26,11 +26,13 @@ class WarmupQueue {
   private processing = false;
   private concurrency = 5;
   private readonly maxRetries = 2;
+  private readonly historyLimit = 200;
   private totalProcessed = 0;
   private totalSuccess = 0;
   private totalFailed = 0;
 
   enqueue(accountId: number): void {
+    this.pruneTerminalItems();
     if (this.queue.some((item) => item.accountId === accountId && item.status !== "completed" && item.status !== "failed")) {
       return;
     }
@@ -70,6 +72,7 @@ class WarmupQueue {
   }
 
   getStatus() {
+    this.pruneTerminalItems();
     return {
       queued: this.queue.filter((item) => item.status === "queued").length,
       active: this.activeJobs,
@@ -83,7 +86,7 @@ class WarmupQueue {
   }
 
   clear(): void {
-    this.queue = this.queue.filter((item) => item.status === "processing");
+    this.queue = this.queue.filter((item) => item.status === "processing" || item.status === "retrying");
     broadcast({ type: "warmup_queue_cleared", data: {} });
   }
 
@@ -112,7 +115,8 @@ class WarmupQueue {
       }
     } finally {
       this.processing = false;
-      if (this.activeJobs === 0 && !this.queue.some((item) => item.status === "queued" || item.status === "processing")) {
+      this.pruneTerminalItems();
+      if (this.activeJobs === 0 && !this.queue.some((item) => item.status === "queued" || item.status === "processing" || item.status === "retrying")) {
         broadcast({
           type: "warmup_complete",
           data: {
@@ -161,8 +165,9 @@ class WarmupQueue {
       const result = await warmupAccount(account);
       if (result.retryable && item.retries < this.maxRetries) {
         item.retries++;
-        item.status = "queued";
+        item.status = "retrying";
         await this.delay(this.backoffMs(item.retries));
+        item.status = "queued";
         return;
       }
 
@@ -173,8 +178,9 @@ class WarmupQueue {
     } catch (error) {
       if (item.retries < this.maxRetries) {
         item.retries++;
-        item.status = "queued";
+        item.status = "retrying";
         await this.delay(this.backoffMs(item.retries));
+        item.status = "queued";
         return;
       }
 
@@ -204,6 +210,15 @@ class WarmupQueue {
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private pruneTerminalItems(): void {
+    const active = this.queue.filter((item) => item.status !== "completed" && item.status !== "failed");
+    const terminal = this.queue
+      .filter((item) => item.status === "completed" || item.status === "failed")
+      .sort((a, b) => b.addedAt.getTime() - a.addedAt.getTime())
+      .slice(0, this.historyLimit);
+    this.queue = [...active, ...terminal];
   }
 }
 

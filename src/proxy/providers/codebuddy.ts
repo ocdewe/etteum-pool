@@ -8,6 +8,7 @@ import {
   type StreamChunk,
 } from "./base";
 import type { Account } from "../../db/schema";
+import { config } from "../../config";
 import { applyPudidilFilters } from "../filters";
 
 interface CodeBuddyTokens {
@@ -398,7 +399,7 @@ export class CodeBuddyProvider extends BaseProvider {
       method: "POST",
       headers: this.buildAuthHeaders(tokens),
       body: JSON.stringify(payload),
-    }, 15000);
+    }, config.providerQuotaTimeoutMs);
   }
 
   private parseResourceQuota(data: any): { limit: number; remaining: number; used: number } {
@@ -426,7 +427,7 @@ export class CodeBuddyProvider extends BaseProvider {
       const response = await this.fetchWithTimeout(`${this.baseUrl}/console/validate/refresh-token`, {
         method: "GET",
         headers: this.buildAuthHeaders(tokens, false),
-      }, 10000);
+      }, Math.min(config.providerQuotaTimeoutMs, 10_000));
       const text = await response.text();
       const payload = this.safeJson(text);
       const body = text.toLowerCase();
@@ -454,7 +455,7 @@ export class CodeBuddyProvider extends BaseProvider {
       const response = await this.fetchWithTimeout(`${this.baseUrl}/console/accounts`, {
         method: "GET",
         headers: this.buildAuthHeaders(tokens, false),
-      }, 10000);
+      }, Math.min(config.providerQuotaTimeoutMs, 10_000));
       const text = await response.text();
       const payload = this.safeJson(text);
       const body = text.toLowerCase();
@@ -682,7 +683,7 @@ export class CodeBuddyProvider extends BaseProvider {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-    }, 120_000);
+    });
   }
 
   private async parseResponse(response: Response, model: string): Promise<ProviderResult> {

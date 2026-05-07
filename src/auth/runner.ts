@@ -173,6 +173,33 @@ async function readTextStream(
   return full;
 }
 
+async function waitForProcessExit(proc: ReturnType<typeof Bun.spawn>, timeoutMs = config.authProcessTimeoutMs): Promise<number> {
+  let timedOut = false;
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      timedOut = true;
+      try {
+        proc.kill();
+      } catch {
+        // process may already be gone
+      }
+      reject(new Error(`Login process timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([proc.exited, timeout]);
+  } finally {
+    if (timedOut) {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        // process may already be gone
+      }
+    }
+  }
+}
+
 function emitProgressLog(account: Account, event: ScriptProgressEvent) {
   const log = addAuthLog({
     type: "login_progress",
@@ -308,8 +335,10 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
       }
     });
     const stderrPromise = new Response(proc.stderr).text();
-    const exitCode = await proc.exited;
-    const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+    const exitCode = await waitForProcessExit(proc);
+    const [stdoutResult, stderrResult] = await Promise.allSettled([stdoutPromise, stderrPromise]);
+    const stdout = stdoutResult.status === "fulfilled" ? stdoutResult.value : "";
+    const stderr = stderrResult.status === "fulfilled" ? stderrResult.value : String(stderrResult.reason || "");
 
     // Parse all events from stdout. Most are already streamed, but this fallback
     // preserves compatibility if the script buffers output until exit.
@@ -501,17 +530,22 @@ export async function loginAllProviders(
       }
     );
 
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
+    const stdoutPromise = new Response(proc.stdout).text();
+    const stderrPromise = new Response(proc.stderr).text();
+    const exitCode = await waitForProcessExit(proc);
+    const [stdoutResult, stderrResult] = await Promise.allSettled([stdoutPromise, stderrPromise]);
+    const stdout = stdoutResult.status === "fulfilled" ? stdoutResult.value : "";
+    const stderr = stderrResult.status === "fulfilled" ? stderrResult.value : String(stderrResult.reason || "");
 
     const events = parseScriptOutput(stdout);
     const result = extractResult(events);
 
     if (!result) {
+      const error = stderr.trim() || `No result${exitCode !== 0 ? ` (exit ${exitCode})` : ""}`;
       return {
-        kiro: { success: false, error: "No result" },
-        codebuddy: { success: false, error: "No result" },
-        canva: { success: false, error: "No result" },
+        kiro: { success: false, error },
+        codebuddy: { success: false, error },
+        canva: { success: false, error },
       };
     }
 

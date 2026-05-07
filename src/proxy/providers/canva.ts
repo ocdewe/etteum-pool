@@ -177,7 +177,7 @@ export class CanvaProvider extends BaseProvider {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-    }, 120_000);
+    });
   }
 
   private async parseResponse(response: Response, model: string): Promise<ProviderResult> {
