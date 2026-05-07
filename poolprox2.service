@@ -27,6 +27,8 @@ ExecStart=/home/priyo/.bun/bin/bun run production:skip
 Restart=always
 RestartSec=3
 Environment=NODE_ENV=production
+Environment=PORT=1630
+Environment=DASHBOARD_PORT=1631
 
 [Install]
 WantedBy=default.target
