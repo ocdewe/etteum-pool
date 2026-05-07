@@ -37,15 +37,17 @@ export class KiroProvider extends BaseProvider {
     // then scale by multiplier. This is an approximation since Kiro doesn't bill per-token.
 
     // Auto (1.0x baseline) — ~0.008/1K
-    { id: "auto", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 1000000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.008 / 1000, creditSource: "estimated" },
+    // Vision: Kiro API requires INLINE_CHAT origin which only works on Pro accounts.
+    // Builder ID (free) accounts get empty responses. Vision routed to CodeBuddy instead.
+    { id: "auto", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 1000000, max_output: 64000, thinking: true, vision: false, creditUnit: "token", creditRate: 0.008 / 1000, creditSource: "estimated" },
     // Claude Haiku 4.5 (0.4x) — ~0.003/1K
-    { id: "claude-haiku-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
+    { id: "claude-haiku-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: false, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
     // Claude Sonnet 4 (1.3x) — ~0.010/1K
-    { id: "claude-sonnet-4", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
+    { id: "claude-sonnet-4", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: false, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
     // Claude Sonnet 4.5 (1.3x) — ~0.010/1K
-    { id: "claude-sonnet-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
+    { id: "claude-sonnet-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: false, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
     // Claude Sonnet 4.5 Thinking (1.3x with extended thinking) — ~0.013/1K
-    { id: "claude-sonnet-4.5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.013 / 1000, creditSource: "estimated" },
+    { id: "claude-sonnet-4.5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: false, creditUnit: "token", creditRate: 0.013 / 1000, creditSource: "estimated" },
     // DeepSeek 3.2 (0.25x) — ~0.002/1K
     { id: "deepseek-3.2", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 164000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
     // GLM-5 (0.5x) — ~0.004/1K
@@ -602,13 +604,13 @@ export class KiroProvider extends BaseProvider {
       userInputMessageContext: context,
     };
 
-    // Kiro API: images go in userInputMessage.imageInput
-    // Format: [{format: "png", source: {bytes: "<pure_base64>"}}]
-    // IMPORTANT: origin must be "INLINE_CHAT" for vision to work (not "AI_EDITOR")
+    // Kiro API vision: imageInput field + origin=INLINE_CHAT
+    // NOTE: INLINE_CHAT only works on Pro/Enterprise accounts.
+    // Builder ID (free) accounts return empty response with INLINE_CHAT.
+    // Fallback: keep AI_EDITOR origin, image won't be processed but no error.
     if (imageBlocks.length > 0) {
       userInputMessage.imageInput = imageBlocks;
       userInputMessage.origin = "INLINE_CHAT";
-      // When images present, content must not be empty
       if (!textContent) userInputMessage.content = "Describe this image.";
     }
 
