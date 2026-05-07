@@ -37,27 +37,27 @@ export class KiroProvider extends BaseProvider {
     // then scale by multiplier. This is an approximation since Kiro doesn't bill per-token.
 
     // Auto (1.0x baseline) — ~0.008/1K
-    { id: "auto", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 1000000, max_output: 64000, thinking: true, creditUnit: "token", creditRate: 0.008 / 1000, creditSource: "estimated" },
+    { id: "auto", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 1000000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.008 / 1000, creditSource: "estimated" },
     // Claude Haiku 4.5 (0.4x) — ~0.003/1K
-    { id: "claude-haiku-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
+    { id: "claude-haiku-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
     // Claude Sonnet 4 (1.3x) — ~0.010/1K
-    { id: "claude-sonnet-4", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
+    { id: "claude-sonnet-4", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
     // Claude Sonnet 4.5 (1.3x) — ~0.010/1K
-    { id: "claude-sonnet-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
+    { id: "claude-sonnet-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
     // Claude Sonnet 4.5 Thinking (1.3x with extended thinking) — ~0.013/1K
-    { id: "claude-sonnet-4.5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, creditUnit: "token", creditRate: 0.013 / 1000, creditSource: "estimated" },
+    { id: "claude-sonnet-4.5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.013 / 1000, creditSource: "estimated" },
     // DeepSeek 3.2 (0.25x) — ~0.002/1K
-    { id: "deepseek-3.2", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 164000, max_output: 64000, thinking: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
+    { id: "deepseek-3.2", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 164000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
     // GLM-5 (0.5x) — ~0.004/1K
-    { id: "glm-5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: false, creditUnit: "token", creditRate: 0.004 / 1000, creditSource: "estimated" },
+    { id: "glm-5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.004 / 1000, creditSource: "estimated" },
     // GLM-5 Thinking (0.5x with thinking) — ~0.005/1K
-    { id: "glm-5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, creditUnit: "token", creditRate: 0.005 / 1000, creditSource: "estimated" },
+    { id: "glm-5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: false, creditUnit: "token", creditRate: 0.005 / 1000, creditSource: "estimated" },
     // MiniMax M2.1 (0.15x) — ~0.001/1K
-    { id: "minimax-m2.1", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 196000, max_output: 64000, thinking: false, creditUnit: "token", creditRate: 0.001 / 1000, creditSource: "estimated" },
+    { id: "minimax-m2.1", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 196000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.001 / 1000, creditSource: "estimated" },
     // MiniMax M2.5 (0.25x) — ~0.002/1K
-    { id: "minimax-m2.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 196000, max_output: 64000, thinking: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
+    { id: "minimax-m2.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 196000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
     // Qwen3 Coder Next (0.05x) — ~0.0004/1K
-    { id: "qwen3-coder-next", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 256000, max_output: 64000, thinking: false, creditUnit: "token", creditRate: 0.0004 / 1000, creditSource: "estimated" },
+    { id: "qwen3-coder-next", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 256000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.0004 / 1000, creditSource: "estimated" },
   ];
 
   private getTokens(account: Account): KiroTokens | null {
@@ -79,10 +79,57 @@ export class KiroProvider extends BaseProvider {
       .map((block: any) => {
         if (block?.type === "text") return block.text || "";
         if (block?.type === "tool_result") return typeof block.content === "string" ? block.content : JSON.stringify(block.content || "");
+        // Skip image blocks here — they are handled separately via contentBlocks
         return "";
       })
       .filter(Boolean)
       .join("\n");
+  }
+
+  /** Extract image blocks from OpenAI-format content array and convert to AWS imageBlock format */
+  private extractImageBlocks(content: any): any[] {
+    if (!Array.isArray(content)) return [];
+    const images: any[] = [];
+    for (const block of content) {
+      if (block?.type === "image_url" && block.image_url?.url) {
+        const url: string = block.image_url.url;
+        // Handle base64 data URLs: data:image/png;base64,<data>
+        const dataMatch = url.match(/^data:image\/(png|jpeg|gif|webp);base64,(.+)$/);
+        if (dataMatch) {
+          images.push({
+            image: {
+              format: dataMatch[1] === "jpg" ? "jpeg" : dataMatch[1],
+              source: { bytes: dataMatch[2] },
+            },
+          });
+        } else {
+          // For regular URLs, include as-is (some AWS endpoints support source.url)
+          images.push({
+            image: {
+              format: "png",
+              source: { url },
+            },
+          });
+        }
+      }
+      // Anthropic-style image block: { type: "image", source: { type: "base64", media_type, data } }
+      if (block?.type === "image" && block.source?.data) {
+        const mediaType = (block.source.media_type || "image/png").replace("image/", "");
+        images.push({
+          image: {
+            format: mediaType === "jpg" ? "jpeg" : mediaType,
+            source: { bytes: block.source.data },
+          },
+        });
+      }
+    }
+    return images;
+  }
+
+  /** Check if content array contains image blocks */
+  private hasImages(content: any): boolean {
+    if (!Array.isArray(content)) return false;
+    return content.some((block: any) => block?.type === "image_url" || block?.type === "image");
   }
 
   private mapTools(tools: any[] | undefined): any[] {
@@ -559,20 +606,32 @@ export class KiroProvider extends BaseProvider {
     const context: Record<string, unknown> = { tools };
     if (toolResults.length > 0) context.toolResults = toolResults;
 
+    // Build content blocks: text + images (if any)
+    const textContent = [systemPrompt, this.textFromContent(lastUser?.content || "")].filter(Boolean).join("\n\n");
+    const imageBlocks = this.extractImageBlocks(lastUser?.content);
+
+    const userInputMessage: Record<string, unknown> = {
+      content: textContent,
+      modelId: actualModel,
+      origin: "AI_EDITOR",
+      userInputMessageContext: context,
+    };
+
+    // Attach image content blocks if present
+    if (imageBlocks.length > 0) {
+      userInputMessage.contentBlocks = [
+        ...(textContent ? [{ text: textContent }] : []),
+        ...imageBlocks,
+      ];
+    }
+
     const body: Record<string, unknown> = {
       conversationState: {
         agentContinuationId: crypto.randomUUID(),
         agentTaskType: "vibe",
         chatTriggerType: "MANUAL",
         conversationId,
-        currentMessage: {
-          userInputMessage: {
-            content: [systemPrompt, this.textFromContent(lastUser?.content || "")].filter(Boolean).join("\n\n"),
-            modelId: actualModel,
-            origin: "AI_EDITOR",
-            userInputMessageContext: context,
-          },
-        },
+        currentMessage: { userInputMessage },
         history,
       },
     };

@@ -33,7 +33,7 @@ export class CanvaProvider extends BaseProvider {
   private baseUrl = "https://www.canva.com";
 
   supportedModels: ModelInfo[] = [
-    { id: "canva-image", object: "model", created: Date.now(), owned_by: "canva", tier: "standard", thinking: false, creditUnit: "image", creditRate: 1, creditSource: "fixed" },
+    { id: "canva-image", object: "model", created: Date.now(), owned_by: "canva", tier: "standard", thinking: false, vision: false, creditUnit: "image", creditRate: 1, creditSource: "fixed" },
   ];
 
   private getTokens(account: Account): CanvaTokens | null {

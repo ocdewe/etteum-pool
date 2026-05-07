@@ -37,41 +37,41 @@ export class CodeBuddyProvider extends BaseProvider {
     // 1 CodeBuddy credit ≈ $0.01 passthrough.
 
     // Claude Opus 4.6 — confirmed: 0.02674/1K
-    { id: "claude-opus-4.6", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", context_window: 1000000, max_output: 64000, thinking: true, creditUnit: "token", creditRate: 0.027 / 1000, creditSource: "estimated" },
+    { id: "claude-opus-4.6", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", context_window: 1000000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.027 / 1000, creditSource: "estimated" },
     // DeepSeek V3.2 — upstream ~$0.14/$0.28/M → ~0.002/1K
-    { id: "deepseek-v3-2-volc", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
+    { id: "deepseek-v3-2-volc", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, vision: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
     // enowx-default — mid-tier estimate
-    { id: "enowx-default", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, creditUnit: "token", creditRate: 0.01 / 1000, creditSource: "estimated" },
+    { id: "enowx-default", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, vision: true, creditUnit: "token", creditRate: 0.01 / 1000, creditSource: "estimated" },
     // Gemini 2.5 Flash — upstream ~$0.30/$2.50/M → ~0.003/1K
-    { id: "gemini-2.5-flash", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
+    { id: "gemini-2.5-flash", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
     // Gemini 2.5 Pro — upstream ~$1.25/$10/M → ~0.012/1K
-    { id: "gemini-2.5-pro", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.012 / 1000, creditSource: "estimated" },
+    { id: "gemini-2.5-pro", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.012 / 1000, creditSource: "estimated" },
     // Gemini 3.0 Flash — similar to 2.5 flash → ~0.004/1K
-    { id: "gemini-3.0-flash", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, creditUnit: "token", creditRate: 0.004 / 1000, creditSource: "estimated" },
+    { id: "gemini-3.0-flash", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, vision: true, creditUnit: "token", creditRate: 0.004 / 1000, creditSource: "estimated" },
     // Gemini 3.1 Flash Lite — cheapest gemini → ~0.002/1K
-    { id: "gemini-3.1-flash-lite", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
+    { id: "gemini-3.1-flash-lite", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, vision: true, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
     // Gemini 3.1 Pro — upstream ~$2/$12/M → ~0.015/1K
-    { id: "gemini-3.1-pro", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, creditUnit: "token", creditRate: 0.015 / 1000, creditSource: "estimated" },
+    { id: "gemini-3.1-pro", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, vision: true, creditUnit: "token", creditRate: 0.015 / 1000, creditSource: "estimated" },
     // GPT-5.1 — upstream ~$1.25/$10/M → ~0.012/1K
-    { id: "gpt-5.1", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.012 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.1", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.012 / 1000, creditSource: "estimated" },
     // GPT-5.1 Codex — same tier as 5.1 → ~0.012/1K
-    { id: "gpt-5.1-codex", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.012 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.1-codex", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.012 / 1000, creditSource: "estimated" },
     // GPT-5.1 Codex Max — premium codex → ~0.025/1K
-    { id: "gpt-5.1-codex-max", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.025 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.1-codex-max", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.025 / 1000, creditSource: "estimated" },
     // GPT-5.1 Codex Mini — upstream ~$0.25/$2/M → ~0.003/1K
-    { id: "gpt-5.1-codex-mini", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.1-codex-mini", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
     // GPT-5.2 — upstream ~$1.75/$14/M → ~0.016/1K
-    { id: "gpt-5.2", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.016 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.2", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.016 / 1000, creditSource: "estimated" },
     // GPT-5.2 Codex — same as 5.2 → ~0.016/1K
-    { id: "gpt-5.2-codex", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.016 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.2-codex", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.016 / 1000, creditSource: "estimated" },
     // GPT-5.3 Codex — upstream ~$2.50/$10/M → ~0.013/1K
-    { id: "gpt-5.3-codex", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.013 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.3-codex", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.013 / 1000, creditSource: "estimated" },
     // GPT-5.4 — upstream ~$2.50/$15/M → ~0.018/1K
-    { id: "gpt-5.4", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.018 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.4", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.018 / 1000, creditSource: "estimated" },
     // GPT-5.5 — upstream ~$5/$30/M → ~0.035/1K (most expensive GPT)
-    { id: "gpt-5.5", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, creditUnit: "token", creditRate: 0.035 / 1000, creditSource: "estimated" },
+    { id: "gpt-5.5", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: true, vision: true, creditUnit: "token", creditRate: 0.035 / 1000, creditSource: "estimated" },
     // Kimi K2.5 — mid-tier Chinese model → ~0.005/1K
-    { id: "kimi-k2.5", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, creditUnit: "token", creditRate: 0.005 / 1000, creditSource: "estimated" },
+    { id: "kimi-k2.5", object: "model", created: Date.now(), owned_by: "codebuddy", tier: "max", thinking: false, vision: false, creditUnit: "token", creditRate: 0.005 / 1000, creditSource: "estimated" },
   ];
 
   private getTokens(account: Account): CodeBuddyTokens | null {
@@ -631,17 +631,37 @@ export class CodeBuddyProvider extends BaseProvider {
           continue;
         }
 
-        // Default: extract text content only
-        const textContent = content
-          .filter((block: any) => block.type === "text")
-          .map((block: any) => block.text || "")
-          .filter(Boolean)
-          .join("\n");
+        // Default: keep text and image_url blocks, drop unknown types
+        const supportedBlocks = content.filter(
+          (block: any) => block.type === "text" || block.type === "image_url" || block.type === "image"
+        );
 
-        cleanedMessages.push({
-          ...msg,
-          content: applyPudidilFilters(textContent || ""),
-        });
+        // If there are image blocks, keep as array (OpenAI multimodal format)
+        const hasImages = supportedBlocks.some((b: any) => b.type === "image_url" || b.type === "image");
+        if (hasImages) {
+          // Convert Anthropic-style image blocks to OpenAI image_url format
+          const openAIBlocks = supportedBlocks.map((block: any) => {
+            if (block.type === "text") {
+              return { type: "text", text: applyPudidilFilters(block.text || "") };
+            }
+            if (block.type === "image_url") return block;
+            // Anthropic format: { type: "image", source: { type: "base64", media_type, data } }
+            if (block.type === "image" && block.source?.data) {
+              return {
+                type: "image_url",
+                image_url: { url: `data:${block.source.media_type || "image/png"};base64,${block.source.data}` },
+              };
+            }
+            return block;
+          });
+          cleanedMessages.push({ ...msg, content: openAIBlocks });
+        } else {
+          const textContent = supportedBlocks
+            .map((block: any) => block.text || "")
+            .filter(Boolean)
+            .join("\n");
+          cleanedMessages.push({ ...msg, content: applyPudidilFilters(textContent || "") });
+        }
         continue;
       }
 

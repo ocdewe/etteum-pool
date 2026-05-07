@@ -1,4 +1,4 @@
-import type { ChatCompletionRequest, ProviderResult } from "./providers/base";
+import type { ChatCompletionRequest, ModelInfo, ProviderResult } from "./providers/base";
 import { KiroProvider } from "./providers/kiro";
 import { CodeBuddyProvider } from "./providers/codebuddy";
 import { CanvaProvider } from "./providers/canva";
@@ -25,6 +25,16 @@ export interface RouteResult {
   durationMs: number;
 }
 
+/** Check if a request contains image content blocks */
+function requestHasImages(request: ChatCompletionRequest): boolean {
+  return request.messages.some((msg) => {
+    if (!Array.isArray(msg.content)) return false;
+    return (msg.content as any[]).some(
+      (block) => block?.type === "image_url" || block?.type === "image"
+    );
+  });
+}
+
 /**
  * Route a chat completion request to the appropriate provider/account.
  * Implements retry logic with fallback to next account.
@@ -41,6 +51,16 @@ export async function routeRequest(
   const provider = providers[providerName];
   if (!provider) {
     throw new Error(`Provider not configured: ${providerName}`);
+  }
+
+  // Reject image requests for models that don't support vision
+  if (requestHasImages(request)) {
+    const modelInfo = provider.getModelInfo(request.model);
+    if (modelInfo && !modelInfo.vision) {
+      throw new Error(
+        `Model "${request.model}" does not support image/vision inputs. Use a vision-capable model instead.`
+      );
+    }
   }
 
   // Try up to 3 accounts before giving up
