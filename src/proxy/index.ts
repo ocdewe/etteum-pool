@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { routeRequest, getAllModels, providers } from "./router";
 import { db } from "../db/index";
-import { accounts, requestLogs, type NewRequestLog } from "../db/schema";
+import { requestLogs, type NewRequestLog } from "../db/schema";
+import { pool } from "./pool";
 import { broadcast } from "../ws/index";
 import type { ChatCompletionRequest, CreditSource } from "./providers/base";
 import {
@@ -164,17 +165,13 @@ function wrapStreamWithUsageFinalizer(
       upstreamCredits || context.fallbackCreditsUsed,
       upstreamCredits > 0 ? "upstream" : context.fallbackCreditSource
     );
-    const quotaAfter = context.quotaBefore > 0 ? Math.max(0, context.quotaBefore - creditsUsed) : 0;
     const durationMs = Math.max(0, Date.now() - context.startedAt);
 
     void (async () => {
       try {
-        if (context.quotaBefore > 0) {
-          await db
-            .update(accounts)
-            .set({ quotaRemaining: quotaAfter, updatedAt: new Date() })
-            .where(eq(accounts.id, context.accountId));
-        }
+        const quotaAfter = context.quotaBefore > 0
+          ? await pool.decrementQuota(context.accountId, creditsUsed)
+          : 0;
 
         if (context.logId) {
           await db
@@ -221,6 +218,8 @@ function wrapStreamWithUsageFinalizer(
         });
       } catch (error) {
         console.error("[Proxy] Failed to finalize stream usage:", error);
+      } finally {
+        pool.trackRequestEnd(context.accountId);
       }
     })();
   };
@@ -276,14 +275,11 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
   );
 
   const quotaBefore = Number(account.quotaRemaining || 0);
-  const quotaAfter = quotaBefore > 0 ? Math.max(0, quotaBefore - creditsUsed) : 0;
-
-  if (quotaBefore > 0) {
-    await db
-      .update(accounts)
-      .set({ quotaRemaining: quotaAfter, updatedAt: new Date() })
-      .where(eq(accounts.id, account.id));
-  }
+  const quotaAfter = isStream
+    ? quotaBefore
+    : quotaBefore > 0
+      ? await pool.decrementQuota(account.id, creditsUsed)
+      : 0;
 
   const logEntry = {
     accountId: account.id,
@@ -343,6 +339,7 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
     data: { ...logEntry, email: account.email, createdAt: new Date().toISOString() },
   });
 
+  pool.trackRequestEnd(account.id);
   return { result, isStream };
 }
 

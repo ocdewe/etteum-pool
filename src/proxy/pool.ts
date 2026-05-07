@@ -23,6 +23,7 @@ class AccountPool {
   };
 
   private activeAccountsCache = new Map<ProviderName, ActiveAccountsCacheEntry>();
+  private inFlightByAccountId = new Map<number, number>();
 
   /**
    * Clear cached active accounts after account mutations or status changes.
@@ -47,11 +48,62 @@ class AccountPool {
       return null;
     }
 
-    const lastIdx = this.state.lastIndex.get(provider) || 0;
-    const nextIdx = (lastIdx + 1) % activeAccounts.length;
-    this.state.lastIndex.set(provider, nextIdx);
+    const startIdx = ((this.state.lastIndex.get(provider) || 0) + 1) % activeAccounts.length;
+    let selected = activeAccounts[startIdx];
+    let selectedIdx = startIdx;
+    let selectedLoad = selected ? this.getInFlightCount(selected.id) : Number.POSITIVE_INFINITY;
 
-    return activeAccounts[nextIdx] || null;
+    for (let i = 1; i < activeAccounts.length; i++) {
+      const idx = (startIdx + i) % activeAccounts.length;
+      const candidate = activeAccounts[idx];
+      if (!candidate) continue;
+      const load = this.getInFlightCount(candidate.id);
+      if (load < selectedLoad) {
+        selected = candidate;
+        selectedIdx = idx;
+        selectedLoad = load;
+        if (load === 0) break;
+      }
+    }
+
+    this.state.lastIndex.set(provider, selectedIdx);
+    return selected || null;
+  }
+
+  private getInFlightCount(accountId: number): number {
+    return this.inFlightByAccountId.get(accountId) || 0;
+  }
+
+  trackRequestStart(accountId: number): void {
+    this.inFlightByAccountId.set(accountId, this.getInFlightCount(accountId) + 1);
+  }
+
+  trackRequestEnd(accountId: number): void {
+    const next = this.getInFlightCount(accountId) - 1;
+    if (next > 0) this.inFlightByAccountId.set(accountId, next);
+    else this.inFlightByAccountId.delete(accountId);
+  }
+
+  async decrementQuota(accountId: number, creditsUsed: number): Promise<number> {
+    if (!Number.isFinite(creditsUsed) || creditsUsed <= 0) {
+      const [account] = await db
+        .select({ quotaRemaining: accounts.quotaRemaining })
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1);
+      return Number(account?.quotaRemaining || 0);
+    }
+
+    const [account] = await db
+      .update(accounts)
+      .set({
+        quotaRemaining: sql`GREATEST(0, COALESCE(${accounts.quotaRemaining}, 0) - ${creditsUsed})`,
+        updatedAt: new Date(),
+      })
+      .where(eq(accounts.id, accountId))
+      .returning({ quotaRemaining: accounts.quotaRemaining });
+
+    return Number(account?.quotaRemaining || 0);
   }
 
   private async getActiveAccounts(provider: ProviderName): Promise<Account[]> {

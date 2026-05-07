@@ -1,4 +1,4 @@
-import { pgTable, serial, text, real, integer, timestamp, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, real, integer, timestamp, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
@@ -39,7 +39,13 @@ export const requestLogs = pgTable("request_logs", {
   accountQuotaBefore: real("account_quota_before").default(0),
   accountQuotaAfter: real("account_quota_after").default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("request_logs_created_at_idx").on(table.createdAt),
+  index("request_logs_status_created_at_idx").on(table.status, table.createdAt),
+  index("request_logs_provider_created_at_idx").on(table.provider, table.createdAt),
+  index("request_logs_provider_model_status_idx").on(table.provider, table.model, table.status),
+  index("request_logs_account_idx").on(table.accountId),
+]);
 
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),

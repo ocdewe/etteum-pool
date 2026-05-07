@@ -87,6 +87,7 @@ export async function routeRequest(
 
       if (result.success) {
         await pool.markUsed(account.id);
+        pool.trackRequestStart(account.id);
         return { result, account, provider: providerName, durationMs };
       }
 
@@ -126,6 +127,7 @@ export async function routeRequest(
 
           if (retryResult.success) {
             await pool.markUsed(account.id);
+            pool.trackRequestStart(account.id);
             return {
               result: retryResult,
               account,
