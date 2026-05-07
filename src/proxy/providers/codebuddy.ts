@@ -500,7 +500,7 @@ export class CodeBuddyProvider extends BaseProvider {
       "X-Domain": "www.codebuddy.ai",
       "X-Product": "SaaS",
       // Use browser-like User-Agent to avoid stricter content moderation for CLI/Agent traffic
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
     };
 
     const apiKey = tokens.api_key || tokens.access_token || tokens.session_token;
@@ -647,18 +647,23 @@ export class CodeBuddyProvider extends BaseProvider {
       cleanedMessages.push(msg);
     }
 
+    // Build minimal request body matching enowxai's approach:
+    // Only include model, max_tokens, messages, and stream.
+    // Avoid sending tools/temperature/extras that can trigger CodeBuddy moderation.
     const body: Record<string, unknown> = {
-      messages: cleanedMessages,
       model: actualModel,
-      // CodeBuddy thinking models can spend dozens of tokens before emitting visible text.
-      // Very small OpenAI-compatible max_tokens values often end as `length` with empty
-      // content, so keep a practical floor while still honoring larger client limits.
-      max_tokens: Math.max(request.max_tokens || 64000, 128),
-      temperature: request.temperature ?? 0.7,
+      max_tokens: Math.max(request.max_tokens || 32000, 128),
+      messages: cleanedMessages,
       stream,
     };
 
-    // Normalize and forward tools if provided
+    // Only include temperature if explicitly set by client (not default)
+    if (request.temperature !== undefined && request.temperature !== null) {
+      body.temperature = request.temperature;
+    }
+
+    // Forward tools — CodeBuddy supports them but they may increase moderation risk.
+    // Only include when the client explicitly sends tools.
     if (request.tools && request.tools.length > 0) {
       body.tools = this.normalizeTools(request.tools);
     }
