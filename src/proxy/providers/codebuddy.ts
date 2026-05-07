@@ -660,7 +660,6 @@ export class CodeBuddyProvider extends BaseProvider {
       messages: cleanedMessages,
       model: actualModel,
       max_tokens: Math.max(request.max_tokens || 64000, 128),
-      temperature: request.temperature ?? 0.7,
       stream,
     };
 
