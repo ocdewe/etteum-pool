@@ -34,8 +34,10 @@ describe("proxy error classification", () => {
   test("groups client-side errors that should not poison accounts", () => {
     expect(isNonAccountRequestError("invalid model")).toBe(true);
     expect(isNonAccountRequestError("improperly formed request")).toBe(true);
-    // Content moderation is retryable — different accounts may succeed
-    expect(isNonAccountRequestError("content moderation")).toBe(false);
+    // Content moderation is a content issue, not account issue — don't retry
+    expect(isNonAccountRequestError("content moderation")).toBe(true);
+    expect(isNonAccountRequestError("Content moderation: Your input was flagged")).toBe(true);
+    expect(isNonAccountRequestError("flagged as potentially sensitive")).toBe(true);
     expect(isNonAccountRequestError("401 unauthorized")).toBe(false);
   });
 });

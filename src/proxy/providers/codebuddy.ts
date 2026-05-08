@@ -11,6 +11,30 @@ import type { Account } from "../../db/schema";
 import { config } from "../../config";
 import { applyPudidilFilters } from "../filters";
 
+/**
+ * Detect if a system prompt belongs to a known AI agent/CLI tool.
+ * Uses broad pattern matching to catch current and future variations.
+ */
+const AGENT_SYSTEM_PROMPT_PATTERNS: RegExp[] = [
+  // Claude Code (various phrasings)
+  /you are claude code/i,
+  /claude.?code.+official.+cli/i,
+  /anthropic.+official.+cli/i,
+  /anxthxropic.+official.+cli/i,
+  // Cursor / Windsurf / Cline / Aider / other coding agents
+  /you are (?:cursor|windsurf|cline|aider|continue|copilot|cody)/i,
+  // Generic agent identity patterns
+  /you are an? (?:ai )?(?:coding |code )?agent/i,
+  // Claude Code specific markers that appear in system prompts
+  /cc_entrypoint\s*=\s*(?:cli|vscode|jetbrains|gui)/i,
+  /claude.?code.+issues/i,
+  /give feedback.+claude.?code/i,
+];
+
+function isAgentSystemPrompt(content: string): boolean {
+  return AGENT_SYSTEM_PROMPT_PATTERNS.some((pattern) => pattern.test(content));
+}
+
 interface CodeBuddyTokens {
   api_key?: string;
   access_token?: string;
@@ -91,9 +115,16 @@ export class CodeBuddyProvider extends BaseProvider {
     if (!tools || tools.length === 0) return [];
 
     return tools.map((tool) => {
-      // If already in OpenAI format, return as-is
+      // If already in OpenAI format, extract and re-normalize
       if (tool.type === "function" && tool.function) {
-        return tool;
+        return {
+          type: "function",
+          function: {
+            name: tool.function.name,
+            description: applyPudidilFilters(tool.function.description || ""),
+            parameters: this.sanitizeToolSchema(tool.function.parameters),
+          },
+        };
       }
 
       // Convert Anthropic/Claude format to OpenAI format
@@ -106,11 +137,46 @@ export class CodeBuddyProvider extends BaseProvider {
         type: "function",
         function: {
           name,
-          description,
+          description: applyPudidilFilters(description),
           parameters: this.sanitizeToolSchema(parameters),
         },
       };
     }).filter(t => t.function?.name);
+  }
+
+  /**
+   * Resolve all $ref references in a JSON Schema by inlining definitions.
+   * This is necessary because CodeBuddy's API doesn't support $ref/$defs.
+   */
+  private resolveSchemaRefs(schema: any, defs: Record<string, any>, seen = new Set<string>()): any {
+    if (!schema || typeof schema !== "object") return schema;
+    if (Array.isArray(schema)) return schema.map(item => this.resolveSchemaRefs(item, defs, seen));
+
+    // Handle $ref
+    if (schema.$ref && typeof schema.$ref === "string") {
+      const refPath = schema.$ref.replace(/^#\/\$defs\//, "").replace(/^#\/definitions\//, "");
+      if (seen.has(refPath)) {
+        // Circular reference — return a generic object to avoid infinite loop
+        return { type: "object", description: `(circular ref: ${refPath})` };
+      }
+      const resolved = defs[refPath];
+      if (resolved) {
+        seen.add(refPath);
+        const result = this.resolveSchemaRefs({ ...resolved }, defs, seen);
+        seen.delete(refPath);
+        return result;
+      }
+      // Unresolvable ref — return generic
+      return { type: "object" };
+    }
+
+    // Recursively resolve all nested objects
+    const clone: any = {};
+    for (const [key, value] of Object.entries(schema)) {
+      if (key === "$defs" || key === "definitions") continue; // skip defs themselves
+      clone[key] = this.resolveSchemaRefs(value, defs, seen);
+    }
+    return clone;
   }
 
   private sanitizeToolSchema(schema: any): any {
@@ -118,27 +184,41 @@ export class CodeBuddyProvider extends BaseProvider {
       return { type: "object", properties: {} };
     }
 
-    const clone: any = { ...schema };
+    // Extract $defs/definitions before removing them, so we can resolve $ref inline
+    const defs = { ...(schema.$defs || {}), ...(schema.definitions || {}) };
 
-    // Remove unsupported JSON Schema fields
+    // Resolve all $ref references inline
+    let resolved = Object.keys(defs).length > 0 || this.hasRefs(schema)
+      ? this.resolveSchemaRefs(schema, defs)
+      : { ...schema };
+
+    // Remove unsupported JSON Schema meta fields
     for (const key of ["$schema", "$id", "$comment", "$defs", "definitions"]) {
-      delete clone[key];
+      delete resolved[key];
     }
 
     // Ensure type is set
-    if (!clone.type) clone.type = "object";
+    if (!resolved.type) resolved.type = "object";
 
     // Ensure properties exists for object types
-    if (clone.type === "object" && !clone.properties) {
-      clone.properties = {};
+    if (resolved.type === "object" && !resolved.properties) {
+      resolved.properties = {};
     }
 
     // Ensure required is an array if present
-    if (clone.required && !Array.isArray(clone.required)) {
-      delete clone.required;
+    if (resolved.required && !Array.isArray(resolved.required)) {
+      delete resolved.required;
     }
 
-    return clone;
+    return resolved;
+  }
+
+  /** Check if a schema object contains any $ref anywhere (deep check) */
+  private hasRefs(obj: any): boolean {
+    if (!obj || typeof obj !== "object") return false;
+    if (Array.isArray(obj)) return obj.some(item => this.hasRefs(item));
+    if ("$ref" in obj) return true;
+    return Object.values(obj).some(value => this.hasRefs(value));
   }
 
   async chatCompletion(
@@ -346,23 +426,6 @@ export class CodeBuddyProvider extends BaseProvider {
     }
   }
 
-  // Dead code below kept for reference - the old fallback path
-  private async _legacyHealthCheckFallback(_account: Account, _tokens: any, _quota: any, session: any, accountStatus: any): Promise<ProviderHealthResult> {
-    const normalizedQuota = _quota.quota
-      ? { ..._quota.quota, source: "codebuddy.get-user-resource" }
-      : undefined;
-
-    return {
-      kind: normalizedQuota && normalizedQuota.remaining <= 0 ? "exhausted" : "healthy",
-      success: true,
-      quota: normalizedQuota,
-      metadata: {
-        session: session.metadata,
-        accountStatus: accountStatus.metadata,
-      },
-    };
-  }
-
   private hasUsableAuth(tokens: CodeBuddyTokens): boolean {
     return Boolean(tokens.api_key || tokens.access_token || tokens.session_token || tokens.web_cookie || tokens.cookies);
   }
@@ -422,68 +485,6 @@ export class CodeBuddyProvider extends BaseProvider {
     return { limit, remaining, used };
   }
 
-  private async validateSessionRemote(tokens: CodeBuddyTokens): Promise<{ kind: "healthy" | "session_expired" | "banned" | "transient_error"; error?: string; metadata?: Record<string, unknown> }> {
-    try {
-      const response = await this.fetchWithTimeout(`${this.baseUrl}/console/validate/refresh-token`, {
-        method: "GET",
-        headers: this.buildAuthHeaders(tokens, false),
-      }, Math.min(config.providerQuotaTimeoutMs, 10_000));
-      const text = await response.text();
-      const payload = this.safeJson(text);
-      const body = text.toLowerCase();
-
-      if (this.isBannedPayload(payload) || /banned|disabled|suspended|no-permission|no-client-author/i.test(body)) {
-        return { kind: "banned", error: "CodeBuddy account appears banned or disabled", metadata: { status: response.status } };
-      }
-      if (response.status === 401 || response.status === 403) {
-        return { kind: "session_expired", error: `CodeBuddy session validation HTTP ${response.status}`, metadata: { status: response.status } };
-      }
-      if (response.status === 429 || response.status >= 500) {
-        return { kind: "transient_error", error: `CodeBuddy session validation HTTP ${response.status}`, metadata: { status: response.status } };
-      }
-      if (payload && typeof payload === "object" && "code" in payload && Number((payload as any).code) !== 0) {
-        return { kind: "session_expired", error: `CodeBuddy session validation code ${(payload as any).code}`, metadata: { status: response.status, code: (payload as any).code } };
-      }
-      return { kind: "healthy", metadata: { status: response.status, code: payload?.code } };
-    } catch (error) {
-      return { kind: "transient_error", error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  private async fetchConsoleAccounts(tokens: CodeBuddyTokens): Promise<{ kind: "healthy" | "session_expired" | "banned" | "transient_error"; error?: string; metadata?: Record<string, unknown> }> {
-    try {
-      const response = await this.fetchWithTimeout(`${this.baseUrl}/console/accounts`, {
-        method: "GET",
-        headers: this.buildAuthHeaders(tokens, false),
-      }, Math.min(config.providerQuotaTimeoutMs, 10_000));
-      const text = await response.text();
-      const payload = this.safeJson(text);
-      const body = text.toLowerCase();
-      if (this.isBannedPayload(payload) || /banned|disabled|suspended|no-permission|no-client-author/i.test(body)) {
-        return { kind: "banned", error: "CodeBuddy console account appears banned or disabled", metadata: { status: response.status } };
-      }
-      if (response.status === 401 || response.status === 403) {
-        return { kind: "session_expired", error: `CodeBuddy console accounts HTTP ${response.status}`, metadata: { status: response.status } };
-      }
-      if (response.status === 429 || response.status >= 500) {
-        return { kind: "transient_error", error: `CodeBuddy console accounts HTTP ${response.status}`, metadata: { status: response.status } };
-      }
-      return { kind: "healthy", metadata: { status: response.status, code: payload?.code, accounts: payload?.data?.accounts?.length } };
-    } catch (error) {
-      return { kind: "transient_error", error: error instanceof Error ? error.message : String(error) };
-    }
-  }
-
-  private safeJson(text: string): any {
-    try { return JSON.parse(text); } catch { return null; }
-  }
-
-  private isBannedPayload(value: any): boolean {
-    if (!value || typeof value !== "object") return false;
-    const text = JSON.stringify(value).toLowerCase();
-    return /banned|disabled|suspended|no-permission|no-client-author/.test(text);
-  }
-
   private async makeRequest(
     tokens: CodeBuddyTokens,
     request: ChatCompletionRequest,
@@ -532,9 +533,10 @@ export class CodeBuddyProvider extends BaseProvider {
       let content = msg.content;
 
       if (typeof content === "string") {
-        // Detect and replace Claude Code system prompt entirely
-        if (msg.role === "system" && content.includes("You are Claude Code, Anxthxropic's official CLI for Claude")) {
-          // Replace entire Claude Code system prompt with a clean, generic one
+        // Detect and replace Claude Code / agent system prompts entirely
+        // Use broad detection to catch variations and newer versions
+        if (msg.role === "system" && isAgentSystemPrompt(content)) {
+          // Replace entire agent system prompt with a clean, generic one
           cleanedMessages.push({
             role: "system",
             content: "You are a helpful AI assistant that helps with software engineering tasks.",
@@ -599,7 +601,7 @@ export class CodeBuddyProvider extends BaseProvider {
             cleanedMessages.push({
               role: "tool",
               tool_call_id: toolResult.tool_use_id || crypto.randomUUID(),
-              content: resultContent,
+              content: applyPudidilFilters(resultContent),
             });
           }
 
@@ -764,7 +766,6 @@ export class CodeBuddyProvider extends BaseProvider {
     let id = this.generateId();
     let finishReason: string | null = "stop";
     let usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-    let creditsUsed = 0;
 
     if (!reader) {
       return {
@@ -842,14 +843,7 @@ export class CodeBuddyProvider extends BaseProvider {
             };
           }
 
-          // Extract credits if available (some providers return this)
-          if (typeof chunk.credits_used === "number") {
-            creditsUsed = chunk.credits_used;
-          } else if (typeof chunk.creditsUsed === "number") {
-            creditsUsed = chunk.creditsUsed;
-          } else if (chunk.usage?.credits_used) {
-            creditsUsed = Number(chunk.usage.credits_used);
-          }
+
         } catch {
           // skip malformed chunk
         }

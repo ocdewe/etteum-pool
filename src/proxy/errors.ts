@@ -20,16 +20,23 @@ export function isContentModerationError(error?: string): boolean {
     error.includes("敏感内容") ||
     error.includes("sensitive content") ||
     error.includes("系统检测到") ||
-    error.includes("content moderation")
+    error.includes("content moderation") ||
+    error.includes("Content moderation") ||
+    error.includes("content_filter") ||
+    error.includes("flagged as potentially sensitive")
   );
 }
 
+/**
+ * Errors that are caused by the request content itself, not the account.
+ * These should NOT be retried with different accounts since the same content
+ * will trigger the same error regardless of which account is used.
+ */
 export function isNonAccountRequestError(error?: string): boolean {
   if (!error) return false;
   return (
     isInvalidModelError(error) ||
-    // Content moderation is NOT included here — allow retry with other accounts
-    // because false positives are common and different accounts may succeed.
+    isContentModerationError(error) ||
     isBadUpstreamRequest(error)
   );
 }

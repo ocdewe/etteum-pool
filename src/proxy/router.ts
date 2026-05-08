@@ -1,4 +1,4 @@
-import type { ChatCompletionRequest, ModelInfo, ProviderResult } from "./providers/base";
+import type { ChatCompletionRequest, ProviderResult } from "./providers/base";
 import { KiroProvider } from "./providers/kiro";
 import { CodeBuddyProvider } from "./providers/codebuddy";
 import { CanvaProvider } from "./providers/canva";

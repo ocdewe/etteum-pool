@@ -1,6 +1,8 @@
 /**
- * Content filter system for removing patterns that trigger content moderation
- * Based on enowxai's pudidil filter template system
+ * Content filter system for removing patterns that trigger content moderation.
+ * Based on enowxai's pudidil filter template system.
+ *
+ * Rules are ordered: broad regex patterns first, then exact string fallbacks.
  */
 
 export interface FilterRule {
@@ -11,41 +13,130 @@ export interface FilterRule {
   is_regex: boolean;
 }
 
-export interface FilterTemplate {
-  name: string;
-  rules: FilterRule[];
-}
-
-/**
- * Pudidil filter template - removes Claude Code CLI detection patterns
- * Based on enowxai's filter system
- */
-/**
- * Filter rules — exact match with enowxai's pudidil template.
- * Order and patterns must match the screenshot/config exactly.
- */
 export const PUDIDIL_FILTERS: FilterRule[] = [
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 1: Broad regex rules FIRST — catch all variations before exact
+  //          strings can partially match and leave fragments behind.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Catch full billing header lines (any version, any entrypoint)
   {
-    id: "remove_cc_entrypoint",
-    pattern: "cc_entrypoint=cli",
+    id: "remove_billing_header_regex",
+    pattern: "x-(?:anthropic-)?billing-header:?\\s*[^\\n]*",
     replacement: "",
     is_active: true,
-    is_regex: false,
+    is_regex: true,
   },
+  // Catch any cc_entrypoint variation (cli, gui, vscode, jetbrains, etc.)
   {
-    id: "remove_billing_header_full",
-    pattern: "x-billing-header: cc_version=2.114.45a; cc_entrypoint=cli; ch=33c97;",
+    id: "remove_cc_entrypoint_any",
+    pattern: "cc_entrypoint=\\w+",
     replacement: "",
     is_active: true,
-    is_regex: false,
+    is_regex: true,
   },
+  // Catch cc_version=X.Y.Z patterns (any version)
   {
-    id: "remove_billing_header_key",
-    pattern: "x-billing-header",
+    id: "remove_cc_version_any",
+    pattern: "cc_version=[\\w.]+",
     replacement: "",
     is_active: true,
-    is_regex: false,
+    is_regex: true,
   },
+  // Catch cch= and ch= hash patterns
+  {
+    id: "remove_cch_hash",
+    pattern: "c?ch=[a-f0-9]+",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove claude-code GitHub references (full URL with path)
+  {
+    id: "remove_claude_code_github",
+    pattern: "https?://github\\.com/anthropics/claude-code[^\\s]*",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove Claude Code identity variations (case-insensitive)
+  {
+    id: "remove_claude_code_identity_variations",
+    pattern: "You are Claude Code[^.]*\\.",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove Anthropic CLI references
+  {
+    id: "remove_anthropic_cli_ref",
+    pattern: "Anthropic'?s official (?:CLI|tool|agent)[^.]*\\.?",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove "Anxthxropic" obfuscated references
+  {
+    id: "remove_anxthxropic_ref",
+    pattern: "Anxthxropic'?s official[^.]*\\.?",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove Cursor agent identity
+  {
+    id: "remove_cursor_identity",
+    pattern: "You are (?:a )?(?:powerful )?(?:AI )?(?:assistant|agent) (?:made|built|created) by (?:Cursor|Anysphere)[^.]*\\.?",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove Windsurf/Codeium agent identity
+  {
+    id: "remove_windsurf_identity",
+    pattern: "You are (?:Windsurf|Cascade|Codeium)[^.]*\\.",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove Cline agent identity
+  {
+    id: "remove_cline_identity",
+    pattern: "You are Cline[^.]*\\.",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove generic "AI coding agent" patterns that may trigger moderation
+  {
+    id: "remove_ai_coding_agent_pattern",
+    pattern: "(?:autonomous|agentic) (?:AI |coding )?(?:agent|assistant)[^.]*\\.",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove tool use framework identifiers (MCP, tool_use markers)
+  {
+    id: "remove_mcp_server_ref",
+    pattern: "MCP (?:server|client|protocol)[^.]*\\.?",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+  // Remove "powered by Claude" / "powered by Anthropic" patterns
+  {
+    id: "remove_powered_by_anthropic",
+    pattern: "powered by (?:Claude|Anthropic|Anxthxropic)[^.]*\\.?",
+    replacement: "",
+    is_active: true,
+    is_regex: true,
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 2: Exact string rules — catch any remaining known literal patterns
+  //          that survived the regex phase.
+  // ═══════════════════════════════════════════════════════════════════════════
+
   {
     id: "remove_feedback_line",
     pattern: "Claude Code. To give feedback, users should report the issue at https://github.com/anthropics/claude-code/issues",
@@ -54,47 +145,26 @@ export const PUDIDIL_FILTERS: FilterRule[] = [
     is_regex: false,
   },
   {
-    id: "remove_github_issues_link",
-    pattern: "https://github.com/anthropics/claude-code/issues",
-    replacement: "",
-    is_active: true,
-    is_regex: false,
-  },
-  {
     id: "remove_powerful_ai_agent",
-    pattern: "Powerful AI Agent",
-    replacement: "",
-    is_active: true,
-    is_regex: false,
-  },
-  {
-    id: "remove_anthropic_billing_header_key",
-    pattern: "x-anthropic-billing-header",
-    replacement: "",
-    is_active: true,
-    is_regex: false,
-  },
-  {
-    id: "remove_anthropic_billing_header_full",
-    pattern: "x-anthropic-billing-header: cc_version=2.1.116.f49; cc_entrypoint=cli; cch=8b6e8",
+    pattern: "Advanced AI Agent",
     replacement: "",
     is_active: true,
     is_regex: false,
   },
   {
     id: "remove_claude_code_identity",
-    pattern: "You are Claude Code, Anthropic's official CLI for Claude.",
+    pattern: "You are Claude Code, Anxthxropic's official CLI for Claude.",
     replacement: "",
     is_active: true,
     is_regex: false,
   },
-  // Catch newer cc_version patterns that may appear in future updates
+  // Replace remaining "Claude Code" mentions with neutral text
   {
-    id: "remove_billing_header_regex",
-    pattern: "x-(?:anthropic-)?billing-header:?\\s*cc_version=[^\\n]+",
-    replacement: "",
+    id: "remove_claude_code_mention",
+    pattern: "Claude Code",
+    replacement: "the assistant",
     is_active: true,
-    is_regex: true,
+    is_regex: false,
   },
 ];
 
