@@ -43,7 +43,7 @@ const navSections: NavSection[] = [
     title: "LOGS & ANALYTICS",
     items: [
       { label: "Requests", path: "/requests", icon: Activity },
-      { label: "Bot Logs", path: "/bot-logs", icon: Bot },
+      { label: "Login Logs", path: "/bot-logs", icon: Bot },
       { label: "Usage", path: "/usage", icon: BarChart3 },
     ],
   },

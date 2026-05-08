@@ -59,6 +59,8 @@ export default function AccountList() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const perPage = 25;
   const { message, setMessage: setTimedMessage, clearMessage } = useTimedMessage<string>(null, 4000);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,6 +113,8 @@ export default function AccountList() {
   const filtered = useMemo(() => {
     return accounts.filter((a) => a.email.toLowerCase().includes(search.toLowerCase()));
   }, [accounts, search]);
+
+  useEffect(() => { setPage(1); }, [search, provider]);
 
   const errorCount = accounts.filter((a) => a.status === "error").length;
 
@@ -168,7 +172,7 @@ export default function AccountList() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((account) => (
+                {filtered.slice((page - 1) * perPage, page * perPage).map((account) => (
                   <tr key={account.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--secondary)]/50">
                     <td className="p-4 text-sm text-[var(--foreground)]">
                       <div>{account.email}</div>
@@ -198,6 +202,18 @@ export default function AccountList() {
               </tbody>
             </table>
           </div>
+          {filtered.length > perPage && (
+            <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {(page - 1) * perPage + 1}–{Math.min(page * perPage, filtered.length)} of {filtered.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Prev</Button>
+                <span className="text-xs text-[var(--muted-foreground)]">{page}/{Math.ceil(filtered.length / perPage)}</span>
+                <Button variant="outline" size="sm" disabled={page >= Math.ceil(filtered.length / perPage)} onClick={() => setPage(page + 1)}>Next</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

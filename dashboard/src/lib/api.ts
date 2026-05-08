@@ -75,8 +75,12 @@ export async function runPollingLoop(fn: () => Promise<void>, intervalMs: number
   }
 }
 
-export async function fetchDashboardStats() {
-  return fetchApi("/api/stats");
+export async function fetchDashboardStats(hours?: number | null, range?: string) {
+  const params = new URLSearchParams();
+  if (hours !== null && hours !== undefined) params.set("hours", String(hours));
+  if (range) params.set("range", range);
+  const qs = params.toString();
+  return fetchApi(`/api/stats${qs ? `?${qs}` : ""}`);
 }
 
 export async function fetchAccounts() {
@@ -95,8 +99,12 @@ export async function fetchUsage(hours: number | null = 24, range?: string) {
   return fetchApi(`/api/stats/usage?${params.toString()}`);
 }
 
-export async function fetchModelUsage() {
-  return fetchApi("/api/stats/models");
+export async function fetchModelUsage(hours?: number | null, range?: string) {
+  const params = new URLSearchParams();
+  if (hours !== null && hours !== undefined) params.set("hours", String(hours));
+  if (range) params.set("range", range);
+  const qs = params.toString();
+  return fetchApi(`/api/stats/models${qs ? `?${qs}` : ""}`);
 }
 
 export async function refreshAccountQuota(accountId: number) {

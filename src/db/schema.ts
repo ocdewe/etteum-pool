@@ -1,4 +1,4 @@
-import { pgTable, serial, text, real, integer, timestamp, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, real, integer, bigint, timestamp, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
@@ -53,9 +53,30 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const usageSummary = pgTable("usage_summary", {
+  id: serial("id").primaryKey(),
+  bucket: timestamp("bucket").notNull(), // start of hour (UTC)
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  totalRequests: integer("total_requests").default(0),
+  successRequests: integer("success_requests").default(0),
+  errorRequests: integer("error_requests").default(0),
+  promptTokens: bigint("prompt_tokens", { mode: "number" }).default(0),
+  completionTokens: bigint("completion_tokens", { mode: "number" }).default(0),
+  totalTokens: bigint("total_tokens", { mode: "number" }).default(0),
+  creditsUsed: real("credits_used").default(0),
+  totalDurationMs: bigint("total_duration_ms", { mode: "number" }).default(0),
+}, (table) => [
+  uniqueIndex("usage_summary_bucket_provider_model_idx").on(table.bucket, table.provider, table.model),
+  index("usage_summary_bucket_idx").on(table.bucket),
+  index("usage_summary_provider_idx").on(table.provider, table.bucket),
+]);
+
 // Type exports
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
 export type RequestLog = typeof requestLogs.$inferSelect;
 export type NewRequestLog = typeof requestLogs.$inferInsert;
 export type Setting = typeof settings.$inferSelect;
+export type UsageSummary = typeof usageSummary.$inferSelect;
+export type NewUsageSummary = typeof usageSummary.$inferInsert;

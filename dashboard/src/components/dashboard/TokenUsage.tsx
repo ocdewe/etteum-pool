@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import UsageChart from "./UsageChart";
-import { formatNumber, parseUtcDate } from "@/lib/utils";
-import { fetchUsage, runPollingLoop } from "@/lib/api";
+import { formatNumber, parseUtcDate, modelColor } from "@/lib/utils";
+import { fetchUsage, fetchDashboardStats, fetchModelUsage, runPollingLoop } from "@/lib/api";
 
 interface TokenStats {
   total: number;
@@ -145,11 +145,18 @@ function rowsToModelChart(rows: Array<{ hour: string; provider?: string; model?:
 }
 
 export default function TokenUsage({
-  stats = defaultStats,
-  modelUsage = defaultModelUsage,
+  stats: externalStats = defaultStats,
+  modelUsage: externalModelUsage = defaultModelUsage,
 }: TokenUsageProps) {
   const [period, setPeriod] = useState("1d");
   const [chartData, setChartData] = useState<any[]>([]);
+  const [filteredStats, setFilteredStats] = useState<TokenStats>(defaultStats);
+  const [filteredModelUsage, setFilteredModelUsage] = useState<ModelUsage[]>([]);
+
+  // Use filtered data (fetched per period) instead of external (all-time) data
+  const stats = filteredStats;
+  const modelUsage = filteredModelUsage;
+
   const maxTokens = Math.max(1, ...modelUsage.map((m) => Number(m.tokens || 0)));
   const colorsByModel = Object.fromEntries(
     modelUsage.map((model) => [`${model.provider || "unknown"}/${model.model || "unknown"}`, model.color]),
@@ -157,11 +164,43 @@ export default function TokenUsage({
 
   useEffect(() => {
     const hours = getChartHours(period);
+    const range = period === "all" ? "all" : undefined;
     const controller = new AbortController();
     runPollingLoop(async () => {
       try {
-        const res = await fetchUsage(hours, period === "all" ? "all" : undefined) as { data: Array<{ hour: string; provider?: string; model?: string; tokens?: number }> };
-        setChartData(rowsToModelChart(res.data || [], period, hours || 24 * 365));
+        const [usageRes, statsRes, modelsRes] = await Promise.all([
+          fetchUsage(hours, range) as Promise<{ data: Array<{ hour: string; provider?: string; model?: string; tokens?: number }> }>,
+          fetchDashboardStats(hours, range) as Promise<any>,
+          fetchModelUsage(hours, range) as Promise<{ data: any[] }>,
+        ]);
+
+        // Update chart data
+        setChartData(rowsToModelChart(usageRes.data || [], period, hours || 24 * 365));
+
+        // Update stats cards from filtered response
+        setFilteredStats({
+          total: Number(statsRes?.tokens?.total || 0),
+          prompt: Number(statsRes?.tokens?.prompt || 0),
+          completion: Number(statsRes?.tokens?.completion || 0),
+          credits: Number(statsRes?.tokens?.credits || 0),
+        });
+
+        // Update model usage from filtered response
+        const modelData = (modelsRes.data || [])
+          .filter((m: any) => Number(m.totalTokens || 0) > 0 || Number(m.credits || 0) > 0)
+          .slice(0, 8)
+          .map((m: any, idx: number) => ({
+            provider: m.provider || "unknown",
+            model: m.model || "unknown",
+            tokens: Number(m.totalTokens || 0),
+            promptTokens: Number(m.promptTokens || 0),
+            completionTokens: Number(m.completionTokens || 0),
+            credits: Number(m.credits || 0),
+            requests: Number(m.totalRequests || 0),
+            creditSource: m.creditSource || "estimated",
+            color: modelColor(`${m.provider || "unknown"}/${m.model || "unknown"}`, idx),
+          }));
+        setFilteredModelUsage(modelData);
       } catch {
         setChartData([]);
       }

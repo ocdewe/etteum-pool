@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { routeRequest, getAllModels, providers } from "./router";
 import { db } from "../db/index";
-import { requestLogs, type NewRequestLog } from "../db/schema";
+import { requestLogs, usageSummary, type NewRequestLog } from "../db/schema";
 import { pool } from "./pool";
 import { broadcast } from "../ws/index";
 import type { ChatCompletionRequest, CreditSource } from "./providers/base";
@@ -13,9 +13,63 @@ import {
 } from "./transforms/anthropic";
 import { isBadUpstreamRequest, isInvalidModelError } from "./errors";
 import { prepareLogBody } from "./logging";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export const proxyRouter = new Hono();
+
+const MAX_REQUEST_LOGS = 500;
+
+/** Upsert a request's stats into the usage_summary table (hourly bucket) */
+async function upsertUsageSummary(entry: {
+  provider: string;
+  model: string;
+  status: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  creditsUsed: number;
+  durationMs: number;
+}) {
+  try {
+    const bucket = new Date();
+    bucket.setMinutes(0, 0, 0); // truncate to hour
+
+    await db.execute(sql`
+      INSERT INTO usage_summary (bucket, provider, model, total_requests, success_requests, error_requests, prompt_tokens, completion_tokens, total_tokens, credits_used, total_duration_ms)
+      VALUES (${bucket.toISOString()}, ${entry.provider || "unknown"}, ${entry.model || "unknown"}, 1,
+        ${entry.status === "success" ? 1 : 0}, ${entry.status === "error" ? 1 : 0},
+        ${entry.promptTokens || 0}, ${entry.completionTokens || 0}, ${entry.totalTokens || 0},
+        ${entry.creditsUsed || 0}, ${entry.durationMs || 0})
+      ON CONFLICT (bucket, provider, model) DO UPDATE SET
+        total_requests = usage_summary.total_requests + 1,
+        success_requests = usage_summary.success_requests + ${entry.status === "success" ? 1 : 0},
+        error_requests = usage_summary.error_requests + ${entry.status === "error" ? 1 : 0},
+        prompt_tokens = usage_summary.prompt_tokens + ${entry.promptTokens || 0},
+        completion_tokens = usage_summary.completion_tokens + ${entry.completionTokens || 0},
+        total_tokens = usage_summary.total_tokens + ${entry.totalTokens || 0},
+        credits_used = usage_summary.credits_used + ${entry.creditsUsed || 0},
+        total_duration_ms = usage_summary.total_duration_ms + ${entry.durationMs || 0}
+    `);
+  } catch (err) {
+    console.error("[Proxy] Failed to upsert usage_summary:", err);
+  }
+}
+
+/** Prune request_logs to keep only the most recent MAX_REQUEST_LOGS rows */
+async function pruneRequestLogs() {
+  try {
+    await db.execute(sql`
+      DELETE FROM request_logs WHERE id NOT IN (
+        SELECT id FROM request_logs ORDER BY created_at DESC LIMIT ${MAX_REQUEST_LOGS}
+      )
+    `);
+  } catch (err) {
+    console.error("[Proxy] Failed to prune request_logs:", err);
+  }
+}
+
+// Prune every 10 requests to avoid running DELETE on every single insert
+let requestCounter = 0;
 
 function normalizeModelId(model: string): string {
   // Common typo seen from clients: "sonet" -> canonical Anthropic "sonnet".
@@ -100,6 +154,12 @@ function openAIErrorResponse(message: string, status: 400 | 503) {
 async function logProxyError(entry: NewRequestLog, label: string) {
   try {
     await db.insert(requestLogs).values(entry);
+    // Also track errors in usage_summary
+    void upsertUsageSummary({
+      provider: entry.provider || "unknown", model: entry.model || "unknown", status: "error",
+      promptTokens: 0, completionTokens: 0, totalTokens: 0, creditsUsed: 0, durationMs: entry.durationMs || 0,
+    });
+    if (++requestCounter % 10 === 0) void pruneRequestLogs();
   } catch (logError) {
     console.error(`[Proxy] Failed to log ${label}:`, logError);
   }
@@ -216,6 +276,14 @@ function wrapStreamWithUsageFinalizer(
             }),
           },
         });
+
+        // Upsert to usage_summary + periodic prune
+        void upsertUsageSummary({
+          provider: context.provider, model: context.model, status: "success",
+          promptTokens: finalPromptTokens, completionTokens: finalCompletionTokens,
+          totalTokens: finalTotalTokens, creditsUsed, durationMs,
+        });
+        if (++requestCounter % 10 === 0) void pruneRequestLogs();
       } catch (error) {
         console.error("[Proxy] Failed to finalize stream usage:", error);
       } finally {
@@ -336,6 +404,13 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
     }
 
   await db.insert(requestLogs).values(logEntry);
+
+  // Upsert to usage_summary + periodic prune
+  void upsertUsageSummary({
+    provider, model: body.model, status: "success",
+    promptTokens, completionTokens, totalTokens, creditsUsed, durationMs,
+  });
+  if (++requestCounter % 10 === 0) void pruneRequestLogs();
 
   broadcast({
     type: "request_log",

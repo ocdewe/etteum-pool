@@ -4,10 +4,12 @@ import {
   type ChatCompletionResponse,
   type ModelInfo,
   type ProviderHealthResult,
+  type ProviderQuotaSnapshot,
   type ProviderResult,
-  type StreamChunk,
 } from "./base";
 import type { Account } from "../../db/schema";
+import { config } from "../../config";
+import path from "path";
 
 interface CanvaTokens {
   caz: string;
@@ -16,81 +18,247 @@ interface CanvaTokens {
   user_id?: string;
   cl?: string;
   cs?: string;
-  cdi?: string;
-  cid?: string;
-  cui?: string;
-  cul?: string;
   cf_clearance?: string;
   all_cookies?: string;
 }
 
+interface WorkerInput {
+  mode: "image" | "video" | "quota";
+  prompt?: string;
+  cookies: CanvaTokens;
+  timeout?: number;
+  count?: number;
+}
+
+interface WorkerOutput {
+  ok: boolean;
+  media_url?: string;
+  thumbnail_url?: string;
+  images?: Array<{ url: string; thumbnail: string; width?: number; height?: number; size?: number }>;
+  width?: number;
+  height?: number;
+  size?: number;
+  mode?: string;
+  count?: number;
+  quota_used?: number;
+  quota_limit?: number;
+  quota_remaining?: number;
+  quota_exhausted?: boolean;
+  error?: string;
+}
+
+const WORKER_SCRIPT = path.join(import.meta.dir, "canva_worker.py");
+const WORKER_TIMEOUT_IMAGE = 120_000; // 120s for image (Canva can take 50-80s)
+const WORKER_TIMEOUT_VIDEO = 180_000; // 180s for video
+
 /**
- * Canva Provider - Image generation
- * Model: canva-image
+ * Canva Provider — Image & Video generation via Magic Media.
+ *
+ * Uses a Python subprocess (curl_cffi) for TLS fingerprint impersonation,
+ * which is required to bypass Cloudflare's bot detection on canva.com.
  */
 export class CanvaProvider extends BaseProvider {
   name = "canva";
-  private baseUrl = "https://www.canva.com";
 
   supportedModels: ModelInfo[] = [
-    { id: "canva-image", object: "model", created: Date.now(), owned_by: "canva", tier: "standard", thinking: false, vision: false, creditUnit: "image", creditRate: 1, creditSource: "fixed" },
+    {
+      id: "canva-image",
+      object: "model",
+      created: Date.now(),
+      owned_by: "canva",
+      tier: "standard",
+      context_window: 1000,
+      max_output: 1,
+      thinking: false,
+      vision: false,
+      creditUnit: "image",
+      creditRate: 1,
+      creditSource: "fixed",
+    },
+    {
+      id: "canva-video",
+      object: "model",
+      created: Date.now(),
+      owned_by: "canva",
+      tier: "standard",
+      context_window: 1000,
+      max_output: 1,
+      thinking: false,
+      vision: false,
+      creditUnit: "image",
+      creditRate: 1,
+      creditSource: "fixed",
+    },
   ];
+
+  // ─── Token helpers ───────────────────────────────────────────────
 
   private getTokens(account: Account): CanvaTokens | null {
     if (!account.tokens) return null;
     try {
-      const t = typeof account.tokens === "string"
-        ? JSON.parse(account.tokens)
-        : account.tokens;
-      return t as CanvaTokens;
+      return (typeof account.tokens === "string" ? JSON.parse(account.tokens) : account.tokens) as CanvaTokens;
     } catch {
       return null;
     }
   }
 
-  async chatCompletion(
-    account: Account,
-    request: ChatCompletionRequest
-  ): Promise<ProviderResult> {
+  // ─── Worker subprocess ───────────────────────────────────────────
+
+  private async runWorker(input: WorkerInput, timeoutMs: number): Promise<WorkerOutput> {
+    // Write input to a temp file to avoid stdin pipe issues with Bun.spawn
+    const tmpFile = `/tmp/canva_worker_${Date.now()}_${Math.random().toString(36).slice(2)}.json`;
+    await Bun.write(tmpFile, JSON.stringify(input));
+
+    try {
+      const proc = Bun.spawn([config.pythonPath, WORKER_SCRIPT], {
+        stdin: Bun.file(tmpFile),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      const timer = setTimeout(() => proc.kill(), timeoutMs);
+      try {
+        await proc.exited;
+        const stdout = await new Response(proc.stdout).text();
+        const stderr = await new Response(proc.stderr).text();
+
+        if (!stdout.trim()) {
+          return { ok: false, error: stderr.trim() || "worker returned empty output" };
+        }
+        return JSON.parse(stdout.trim());
+      } finally {
+        clearTimeout(timer);
+        // Cleanup temp file
+        try { await Bun.file(tmpFile).exists() && (await import("fs/promises")).unlink(tmpFile); } catch {}
+      }
+    } catch (err) {
+      try { (await import("fs/promises")).unlink(tmpFile); } catch {}
+      return { ok: false, error: `worker error: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
+
+  // ─── Chat completion ─────────────────────────────────────────────
+
+  async chatCompletion(account: Account, request: ChatCompletionRequest): Promise<ProviderResult> {
     const tokens = this.getTokens(account);
     if (!tokens?.caz) {
       return { success: false, error: "No CAZ token available" };
     }
 
-    try {
-      const response = await this.makeRequest(tokens, request, false);
+    const mode = request.model === "canva-video" ? "video" : "image";
+    const lastUserMsg = [...request.messages].reverse().find((m) => m.role === "user");
+    const prompt = typeof lastUserMsg?.content === "string"
+      ? lastUserMsg.content
+      : JSON.stringify(lastUserMsg?.content || "");
 
-      if (response.status === 401 || response.status === 403) {
-        return { success: false, error: "Session expired, re-login required" };
-      }
+    if (!prompt.trim()) {
+      return { success: false, error: "Empty prompt" };
+    }
 
-      if (response.status === 429) {
+    // Support n parameter for number of images (1-4, default 4 for image, 1 for video)
+    const count = mode === "video" ? 1 : Math.min(4, Math.max(1, (request as any).n || 4));
+    const timeoutMs = mode === "video" ? WORKER_TIMEOUT_VIDEO : WORKER_TIMEOUT_IMAGE;
+    const timeoutSec = Math.floor(timeoutMs / 1000) - 5;
+
+    const result = await this.runWorker(
+      { mode, prompt: prompt.trim(), cookies: tokens, timeout: timeoutSec, count },
+      timeoutMs,
+    );
+
+    if (!result.ok) {
+      if (result.quota_exhausted) {
         return { success: false, error: "Rate limited / quota exhausted", quotaExhausted: true };
       }
-
-      if (!response.ok) {
-        const errText = await response.text();
-        return { success: false, error: `Canva API error (${response.status}): ${errText}` };
-      }
-
-      return this.parseResponse(response, request.model);
-    } catch (error) {
-      return { success: false, error: `Canva request failed: ${error instanceof Error ? error.message : String(error)}` };
+      return { success: false, error: result.error || "Canva generation failed" };
     }
+
+    // Build OpenAI-compatible response
+    const content = this.formatContent(result, mode);
+
+    const response: ChatCompletionResponse = {
+      id: this.generateId(),
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: request.model,
+      choices: [{
+        index: 0,
+        message: { role: "assistant", content },
+        finish_reason: "stop",
+      }],
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: count },
+    };
+
+    return {
+      success: true,
+      response,
+      tokensUsed: count,
+      creditsUsed: count,
+      creditSource: "fixed",
+    };
   }
 
-  async chatCompletionStream(
-    account: Account,
-    request: ChatCompletionRequest
-  ): Promise<ProviderResult> {
-    // Canva image generation doesn't really stream, but we wrap it
+  async chatCompletionStream(account: Account, request: ChatCompletionRequest): Promise<ProviderResult> {
+    // Canva generation doesn't stream — wrap as non-stream
     return this.chatCompletion(account, request);
   }
 
-  async refreshToken(
-    _account: Account
-  ): Promise<{ success: boolean; tokens?: string; error?: string }> {
-    return { success: false, error: "Canva requires re-login" };
+  // ─── Format response content ────────────────────────────────────
+
+  private formatContent(result: WorkerOutput, mode: string): string {
+    const parts: string[] = [];
+
+    if (mode === "video") {
+      if (result.media_url) parts.push(`[Video](${result.media_url})`);
+      if (result.thumbnail_url) parts.push(`![Thumbnail](${result.thumbnail_url})`);
+      if (result.width && result.height) parts.push(`Resolution: ${result.width}x${result.height}`);
+      if (result.size) parts.push(`Size: ${(result.size / 1_000_000).toFixed(1)}MB`);
+    } else if (result.images && result.images.length > 1) {
+      // Multiple images
+      for (let i = 0; i < result.images.length; i++) {
+        const img = result.images[i]!;
+        if (img.url) parts.push(`![Image ${i + 1}](${img.url})`);
+      }
+    } else {
+      // Single image
+      if (result.media_url) parts.push(`![Generated Image](${result.media_url})`);
+    }
+
+    return parts.join("\n\n") || result.media_url || "Generation completed but no URL returned.";
+  }
+
+  // ─── Quota ──────────────────────────────────────────────────────
+
+  async fetchQuota(account: Account): Promise<{
+    success: boolean;
+    quota?: ProviderQuotaSnapshot;
+    error?: string;
+  }> {
+    const tokens = this.getTokens(account);
+    if (!tokens?.caz) {
+      return { success: false, error: "No CAZ token" };
+    }
+
+    const result = await this.runWorker({ mode: "quota", cookies: tokens }, 15_000);
+
+    if (!result.ok) {
+      return { success: false, error: result.error || "Quota fetch failed" };
+    }
+
+    return {
+      success: true,
+      quota: {
+        limit: result.quota_limit || 0,
+        remaining: result.quota_remaining || 0,
+        used: result.quota_used || 0,
+        source: "canva.quota",
+      },
+    };
+  }
+
+  // ─── Auth & Health ──────────────────────────────────────────────
+
+  async refreshToken(_account: Account): Promise<{ success: boolean; tokens?: string; error?: string }> {
+    return { success: false, error: "Canva requires browser re-login" };
   }
 
   async validateAccount(account: Account): Promise<boolean> {
@@ -98,120 +266,26 @@ export class CanvaProvider extends BaseProvider {
     return !!tokens?.caz;
   }
 
-  async fetchQuota(account: Account): Promise<{
-    success: boolean;
-    quota?: { limit: number; remaining: number; used: number };
-    error?: string;
-  }> {
-    return {
-      success: false,
-      error: "Canva does not support real-time quota fetching",
-    };
-  }
-
   override async healthCheck(account: Account): Promise<ProviderHealthResult> {
     const tokens = this.getTokens(account);
     if (!tokens?.caz) {
-      return { kind: "missing_tokens", success: false, error: "No Canva CAZ token available" };
+      return { kind: "missing_tokens", success: false, error: "No Canva CAZ token" };
+    }
+
+    const result = await this.runWorker({ mode: "quota", cookies: tokens }, 15_000);
+    if (!result.ok) {
+      return { kind: "auth_error", success: false, error: result.error || "Quota check failed" };
+    }
+
+    const remaining = result.quota_remaining || 0;
+    if (remaining <= 0) {
+      return { kind: "exhausted", success: true, quota: { limit: result.quota_limit || 0, remaining: 0, used: result.quota_used || 0, source: "canva.quota" } };
     }
 
     return {
-      kind: "unsupported",
-      success: false,
-      retryable: false,
-      message: "Canva warmup quota/session check is not supported yet",
-      metadata: { hasCaz: true },
-    };
-  }
-
-  private async makeRequest(
-    tokens: CanvaTokens,
-    request: ChatCompletionRequest,
-    _stream: boolean
-  ): Promise<Response> {
-    // Build cookie string from individual tokens
-    const cookieParts: string[] = [];
-    if (tokens.caz) cookieParts.push(`CAZ=${tokens.caz}`);
-    if (tokens.cb) cookieParts.push(`CB=${tokens.cb}`);
-    if (tokens.cau) cookieParts.push(`CAU=${tokens.cau}`);
-    if (tokens.cl) cookieParts.push(`CL=${tokens.cl}`);
-    if (tokens.cs) cookieParts.push(`CS=${tokens.cs}`);
-    if (tokens.cf_clearance) cookieParts.push(`cf_clearance=${tokens.cf_clearance}`);
-
-    // If all_cookies is available, use that instead
-    let cookieStr = cookieParts.join("; ");
-    if (tokens.all_cookies) {
-      try {
-        const allCookies = JSON.parse(tokens.all_cookies) as Record<string, string>;
-        cookieStr = Object.entries(allCookies).map(([k, v]) => `${k}=${v}`).join("; ");
-      } catch { /* use individual cookies */ }
-    }
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json;charset=UTF-8",
-      "Origin": "https://www.canva.com",
-      "Referer": "https://www.canva.com/ai",
-      "Cookie": cookieStr,
-      "x-canva-authz": tokens.caz,
-      "x-canva-brand": tokens.cb || "",
-      "x-canva-user": tokens.user_id || "",
-      "x-canva-active-user": tokens.cau || "",
-      "x-canva-accept-prefix": "no-prefix",
-      "x-canva-request": "generate",
-      "x-canva-app": "home",
-      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
-    };
-
-    // Extract prompt from messages (use last user message)
-    const lastUserMsg = [...request.messages].reverse().find(m => m.role === "user");
-    const prompt = lastUserMsg?.content || "";
-
-    const body = {
-      prompt,
-      model: "canva-image",
-      num_images: 1,
-      style: "auto",
-    };
-
-    return this.fetchWithTimeout(`${this.baseUrl}/_ajax/ai/image/generate`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-  }
-
-  private async parseResponse(response: Response, model: string): Promise<ProviderResult> {
-    const data = (await response.json()) as any;
-
-    // Canva returns image URLs - wrap in OpenAI-compatible format
-    const imageUrl = data.images?.[0]?.url || data.url || data.result || "";
-    const content = imageUrl
-      ? `![Generated Image](${imageUrl})`
-      : data.response || data.text || JSON.stringify(data);
-
-    const completionResponse: ChatCompletionResponse = {
-      id: this.generateId(),
-      object: "chat.completion",
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: [{
-        index: 0,
-        message: { role: "assistant", content },
-        finish_reason: "stop",
-      }],
-      usage: {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 1, // Count as 1 credit used
-      },
-    };
-
-    return {
+      kind: "healthy",
       success: true,
-      response: completionResponse,
-      tokensUsed: 1,
-      creditsUsed: 1,
-      creditSource: "fixed",
+      quota: { limit: result.quota_limit || 0, remaining, used: result.quota_used || 0, source: "canva.quota" },
     };
   }
 }

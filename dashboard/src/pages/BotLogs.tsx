@@ -76,8 +76,7 @@ function mergeLogs(current: AuthLog[], incoming: AuthLog[]) {
     map.set(key, log);
   }
   return [...map.values()]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 300);
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
 
 function logsToProcesses(logs: AuthLog[]): ProcessLog[] {
@@ -113,6 +112,8 @@ export default function BotLogs() {
   const [warmupQueue, setWarmupQueue] = useState<any>(null);
   const [connected, setConnected] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const perPage = 25;
   const queueRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function load() {
@@ -209,12 +210,26 @@ export default function BotLogs() {
     }
     return [...map.values()];
   }, [failed]);
-  const success = useMemo(() => logs.filter((log) => log.type === "login_success"), [logs]);
-  const processes = useMemo(() => logsToProcesses(logs), [logs]);
+  const processes = useMemo(() => {
+    return logsToProcesses(logs).filter((process) => {
+      // Exclude pending items that haven't started processing yet
+      if (process.events.length === 1) {
+        const type = process.events[0].type;
+        if (type === "queue_added" || type === "warmup_queue_added") return false;
+      }
+      return true;
+    });
+  }, [logs]);
   const running = Number(queue?.active || 0);
   const queued = Number(queue?.queued || 0);
   const warmupRunning = Number(warmupQueue?.active || 0);
   const warmupQueued = Number(warmupQueue?.queued || 0);
+
+  // Use backend queue stats for accurate counts (lightweight, no frontend recalculation)
+  const totalProgress = running + warmupRunning;
+  const totalSuccess = Number(queue?.totalSuccess || 0) + Number(warmupQueue?.totalSuccess || 0);
+  const totalFailed = Number(queue?.totalFailed || 0) + Number(warmupQueue?.totalFailed || 0);
+  const totalQueued = queued + warmupQueued;
 
   async function handleClear() {
     await clearAuthLogs();
@@ -238,9 +253,9 @@ export default function BotLogs() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--foreground)]">Bot Logs</h1>
+          <h1 className="text-2xl font-bold text-[var(--foreground)]">Login Logs</h1>
           <p className="text-sm text-[var(--muted-foreground)] mt-1">
-            Live progress for auto-login bot and WarmUp health checks, including failed accounts.
+            Live progress for auto-login bot, including failed accounts.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -251,16 +266,16 @@ export default function BotLogs() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="border-[var(--border)]"><CardContent className="p-4"><p className="text-xs text-[var(--muted-foreground)]">Login Queue</p><p className="text-2xl font-bold">{queued}/{running}</p></CardContent></Card>
-        <Card className="border-[var(--border)]"><CardContent className="p-4"><p className="text-xs text-[var(--muted-foreground)]">WarmUp Queue</p><p className="text-2xl font-bold">{warmupQueued}/{warmupRunning}</p></CardContent></Card>
-        <Card className="border-[var(--border)]"><CardContent className="p-4"><p className="text-xs text-[var(--muted-foreground)]">Success</p><p className="text-2xl font-bold text-green-400">{success.length}</p></CardContent></Card>
-        <Card className="border-[var(--border)]"><CardContent className="p-4"><p className="text-xs text-[var(--muted-foreground)]">Failed</p><p className="text-2xl font-bold text-red-400">{failed.length}</p></CardContent></Card>
+        <Card className="border-[var(--border)]"><CardContent className="p-4"><p className="text-xs text-[var(--muted-foreground)]">Queue</p><p className="text-2xl font-bold">{totalQueued}</p></CardContent></Card>
+        <Card className="border-[var(--border)]"><CardContent className="p-4"><p className="text-xs text-[var(--muted-foreground)]">Progress</p><p className="text-2xl font-bold text-yellow-400">{totalProgress}</p></CardContent></Card>
+        <Card className="border-[var(--border)]"><CardContent className="p-4"><p className="text-xs text-[var(--muted-foreground)]">Success</p><p className="text-2xl font-bold text-green-400">{totalSuccess}</p></CardContent></Card>
+        <Card className="border-[var(--border)]"><CardContent className="p-4"><p className="text-xs text-[var(--muted-foreground)]">Failed</p><p className="text-2xl font-bold text-red-400">{totalFailed}</p></CardContent></Card>
       </div>
 
-      {(running > 0 || queued > 0 || warmupRunning > 0 || warmupQueued > 0) && (
+      {(totalProgress > 0 || totalQueued > 0) && (
         <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-3 text-sm text-yellow-300 flex items-center gap-2">
           <Radio className="w-4 h-4 animate-pulse" />
-          Bot/WarmUp sedang berjalan: login {running} running/{queued} queued, warmup {warmupRunning} running/{warmupQueued} queued. Log akan update otomatis.
+          Sedang berjalan: {totalProgress} processing, {totalQueued} queued. Log akan update otomatis.
         </div>
       )}
 
@@ -292,7 +307,7 @@ export default function BotLogs() {
       )}
 
       <Card className="border-[var(--border)]">
-        <CardHeader><CardTitle className="text-base">Live Bot & WarmUp Progress</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">Login Progress</CardTitle></CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -307,7 +322,7 @@ export default function BotLogs() {
                 </tr>
               </thead>
               <tbody>
-                {processes.map((process) => (
+                {processes.slice((page - 1) * perPage, page * perPage).map((process) => (
                   <Fragment key={process.key}>
                     <tr
                       className="cursor-pointer border-b border-[var(--border)] last:border-0 hover:bg-[var(--secondary)]/50"
@@ -347,11 +362,24 @@ export default function BotLogs() {
                   </Fragment>
                 ))}
                 {processes.length === 0 && (
-                  <tr><td colSpan={6} className="p-8 text-center text-sm text-[var(--muted-foreground)]">No bot logs yet. Add an account or start login to see progress.</td></tr>
+                  <tr><td colSpan={6} className="p-8 text-center text-sm text-[var(--muted-foreground)]">No login logs yet. Add an account or start login to see progress.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
+          {/* Pagination */}
+          {processes.length > perPage && (
+            <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {(page - 1) * perPage + 1}–{Math.min(page * perPage, processes.length)} of {processes.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Prev</Button>
+                <span className="text-xs text-[var(--muted-foreground)]">{page}/{Math.ceil(processes.length / perPage)}</span>
+                <Button variant="outline" size="sm" disabled={page >= Math.ceil(processes.length / perPage)} onClick={() => setPage(page + 1)}>Next</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

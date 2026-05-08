@@ -56,7 +56,7 @@ export interface StreamChunk {
   };
 }
 
-export type CreditUnit = "token" | "request" | "image";
+export type CreditUnit = "token" | "request" | "image" | "credit";
 export type CreditSource = "upstream" | "quota_delta" | "estimated" | "fixed";
 export type ProviderHealthKind =
   | "healthy"

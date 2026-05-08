@@ -31,35 +31,32 @@ export class KiroProvider extends BaseProvider {
     "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken";
 
   supportedModels: ModelInfo[] = [
-    // Kiro uses REQUEST-BASED billing with model multipliers (not per-token).
-    // Official multipliers: Auto=1.0x, Sonnet-4.5=1.3x, Haiku=0.4x, DeepSeek=0.25x, etc.
-    // Typical request on Auto ≈ 0.79 credits. Accounts have ~550 credits.
-    // Since our system tracks per-token, we approximate: baseline ~0.008 credits/1K tokens
-    // then scale by multiplier. This is an approximation since Kiro doesn't bill per-token.
+    // Kiro uses CREDIT-BASED billing (fractional credits per request).
+    // Kiro sends real credit usage via meteringEvent and context usage via contextUsageEvent.
+    // creditRate here is only used as fallback when upstream credits are unavailable.
 
-    // Auto (1.0x baseline) — ~0.008/1K
-    // Vision: images are sent via userInputMessage.images for Kiro upstream.
-    { id: "auto", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 1000000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.008 / 1000, creditSource: "estimated" },
-    // Claude Haiku 4.5 (0.4x) — ~0.003/1K
-    { id: "claude-haiku-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.003 / 1000, creditSource: "estimated" },
-    // Claude Sonnet 4 (1.3x) — ~0.010/1K
-    { id: "claude-sonnet-4", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
-    // Claude Sonnet 4.5 (1.3x) — ~0.010/1K
-    { id: "claude-sonnet-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.010 / 1000, creditSource: "estimated" },
-    // Claude Sonnet 4.5 Thinking (1.3x with extended thinking) — ~0.013/1K
-    { id: "claude-sonnet-4.5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "token", creditRate: 0.013 / 1000, creditSource: "estimated" },
-    // DeepSeek 3.2 (0.25x) — ~0.002/1K
-    { id: "deepseek-3.2", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 164000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
-    // GLM-5 (0.5x) — ~0.004/1K
-    { id: "glm-5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.004 / 1000, creditSource: "estimated" },
-    // GLM-5 Thinking (0.5x with thinking) — ~0.005/1K
-    { id: "glm-5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: false, creditUnit: "token", creditRate: 0.005 / 1000, creditSource: "estimated" },
-    // MiniMax M2.1 (0.15x) — ~0.001/1K
-    { id: "minimax-m2.1", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 196000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.001 / 1000, creditSource: "estimated" },
-    // MiniMax M2.5 (0.25x) — ~0.002/1K
-    { id: "minimax-m2.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 196000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.002 / 1000, creditSource: "estimated" },
-    // Qwen3 Coder Next (0.05x) — ~0.0004/1K
-    { id: "qwen3-coder-next", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 256000, max_output: 64000, thinking: false, vision: false, creditUnit: "token", creditRate: 0.0004 / 1000, creditSource: "estimated" },
+    // Auto (1.0x baseline)
+    { id: "auto", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 1000000, max_output: 64000, thinking: true, vision: true, creditUnit: "credit", creditRate: 0.008 / 1000, creditSource: "estimated" },
+    // Claude Haiku 4.5 (0.4x)
+    { id: "claude-haiku-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "credit", creditRate: 0.003 / 1000, creditSource: "estimated" },
+    // Claude Sonnet 4 (1.3x)
+    { id: "claude-sonnet-4", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "credit", creditRate: 0.010 / 1000, creditSource: "estimated" },
+    // Claude Sonnet 4.5 (1.3x)
+    { id: "claude-sonnet-4.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "credit", creditRate: 0.010 / 1000, creditSource: "estimated" },
+    // Claude Sonnet 4.5 Thinking (1.3x with extended thinking)
+    { id: "claude-sonnet-4.5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: true, creditUnit: "credit", creditRate: 0.013 / 1000, creditSource: "estimated" },
+    // DeepSeek 3.2 (0.25x)
+    { id: "deepseek-3.2", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 164000, max_output: 64000, thinking: false, vision: false, creditUnit: "credit", creditRate: 0.002 / 1000, creditSource: "estimated" },
+    // GLM-5 (0.5x)
+    { id: "glm-5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: false, vision: false, creditUnit: "credit", creditRate: 0.004 / 1000, creditSource: "estimated" },
+    // GLM-5 Thinking (0.5x with thinking)
+    { id: "glm-5-thinking", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 200000, max_output: 64000, thinking: true, vision: false, creditUnit: "credit", creditRate: 0.005 / 1000, creditSource: "estimated" },
+    // MiniMax M2.1 (0.15x)
+    { id: "minimax-m2.1", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 196000, max_output: 64000, thinking: false, vision: false, creditUnit: "credit", creditRate: 0.001 / 1000, creditSource: "estimated" },
+    // MiniMax M2.5 (0.25x)
+    { id: "minimax-m2.5", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 196000, max_output: 64000, thinking: false, vision: false, creditUnit: "credit", creditRate: 0.002 / 1000, creditSource: "estimated" },
+    // Qwen3 Coder Next (0.05x)
+    { id: "qwen3-coder-next", object: "model", created: Date.now(), owned_by: "kiro", tier: "standard", context_window: 256000, max_output: 64000, thinking: false, vision: false, creditUnit: "credit", creditRate: 0.0004 / 1000, creditSource: "estimated" },
   ];
 
   private getTokens(account: Account): KiroTokens | null {
@@ -637,14 +634,19 @@ export class KiroProvider extends BaseProvider {
     if (events.length > 0) {
       content = this.extractKiroText(events);
       const toolCalls = this.extractKiroToolCalls(events);
-      tokensUsed = this.extractKiroTokens(events);
       upstreamCreditsUsed = this.extractKiroCredits(events);
       if (!content.trim() && toolCalls.length === 0) {
         return { success: false, error: "Kiro returned no assistant content" };
       }
-      const promptTokens = this.estimateMessagesTokens(request.messages);
+
+      // Kiro doesn't send token counts directly. Use contextUsagePercentage for total tokens.
+      const contextTokens = this.extractKiroContextTokens(events, model);
       const completionTokens = this.estimateTokens(content || JSON.stringify(toolCalls));
-      const totalTokens = tokensUsed || promptTokens + completionTokens;
+      const promptTokens = contextTokens > completionTokens
+        ? contextTokens - completionTokens
+        : this.estimateMessagesTokens(request.messages);
+      const totalTokens = contextTokens || (promptTokens + completionTokens);
+
       const data: ChatCompletionResponse = {
         id: this.generateId(),
         object: "chat.completion",
@@ -705,7 +707,7 @@ export class KiroProvider extends BaseProvider {
       promptTokens,
       completionTokens,
       creditsUsed: upstreamCreditsUsed || totalTokens * this.getProviderCreditRate(model),
-        creditSource: upstreamCreditsUsed > 0 ? "upstream" : "estimated",
+      creditSource: upstreamCreditsUsed > 0 ? "upstream" : "estimated",
     };
   }
 
@@ -765,6 +767,7 @@ export class KiroProvider extends BaseProvider {
   private createLiveStreamResponse(response: Response, model: string): ProviderResult {
     const id = this.generateId();
     const encoder = new TextEncoder();
+    const extractCreditsRef = this.extractKiroCredits.bind(this);
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         const reader = response.body?.getReader();
@@ -773,16 +776,18 @@ export class KiroProvider extends BaseProvider {
         const toolIndexes = new Map<string, number>();
         const toolBuffers = new Map<string, string>();
         let nextToolIndex = 0;
+        const allEvents: Array<{ headers: Record<string, string>; payload: any }> = [];
 
-        const enqueue = (delta: any, finish_reason: string | null = null) => {
-          const chunk: StreamChunk = {
+        const enqueue = (delta: any, finish_reason: string | null = null, usage?: any) => {
+          const chunk: any = {
             id,
             object: "chat.completion.chunk",
             created: Math.floor(Date.now() / 1000),
             model,
             choices: [{ index: 0, delta, finish_reason }],
           };
-          controller.enqueue(encoder.encode(this.createSSEChunk(chunk)));
+          if (usage) chunk.usage = usage;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
         };
 
         try {
@@ -794,6 +799,7 @@ export class KiroProvider extends BaseProvider {
             const parsed = this.readEventStreamFrames(buffer);
             buffer = parsed.remaining;
             for (const event of parsed.events) {
+              allEvents.push(event);
               const eventType = event.headers[":event-type"];
               const payload = this.unwrapKiroEvent(event.payload, eventType);
               if (event.headers[":message-type"] === "error" || event.headers[":message-type"] === "exception") {
@@ -843,8 +849,14 @@ export class KiroProvider extends BaseProvider {
               }
             }
           }
-          enqueue({}, toolIndexes.size > 0 ? "tool_calls" : "stop");
-          controller.enqueue(encoder.encode(this.createSSEDone()));
+          // Extract real usage from Kiro's contextUsageEvent and meteringEvent
+          const totalTokens = this.extractKiroContextTokens(allEvents, model);
+          const creditsUsed = extractCreditsRef(allEvents);
+          const usage = totalTokens > 0 || creditsUsed > 0
+            ? { prompt_tokens: 0, completion_tokens: 0, total_tokens: totalTokens, credits_used: creditsUsed }
+            : undefined;
+          enqueue({}, toolIndexes.size > 0 ? "tool_calls" : "stop", usage);
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: { message, type: "api_error" } })}\n\n`));
@@ -968,25 +980,29 @@ export class KiroProvider extends BaseProvider {
     return credits;
   }
 
-  private extractKiroTokens(events: Array<{ payload: any }>): number {
-    let total = 0;
-    const visit = (value: any) => {
-      if (!value || typeof value !== "object") return;
-      if (typeof value.totalTokens === "number") total = Math.max(total, value.totalTokens);
-      if (typeof value.total_tokens === "number") total = Math.max(total, value.total_tokens);
-      if (typeof value.tokensUsed === "number") total = Math.max(total, value.tokensUsed);
-      if (typeof value.total === "number" && /usage|meter/i.test(JSON.stringify(value).slice(0, 200))) total = Math.max(total, value.total);
-      if (typeof value.tokens === "number") total = Math.max(total, value.tokens);
-      if (typeof value.inputTokenCount === "number" || typeof value.outputTokenCount === "number") {
-        total = Math.max(total, (value.inputTokenCount || 0) + (value.outputTokenCount || 0));
+  /**
+   * Extract total token count from Kiro's contextUsageEvent.
+   * Kiro sends `contextUsagePercentage` which represents the % of context window used.
+   * We convert this to an approximate token count using the model's context_window size.
+   */
+  private extractKiroContextTokens(events: Array<{ payload: any }>, model: string): number {
+    let contextPercentage = 0;
+    for (const event of events) {
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object") continue;
+      // Direct field
+      if (typeof payload.contextUsagePercentage === "number") {
+        contextPercentage = Math.max(contextPercentage, payload.contextUsagePercentage);
       }
-      if (typeof value.inputTokens === "number" || typeof value.outputTokens === "number") {
-        total = Math.max(total, (value.inputTokens || 0) + (value.outputTokens || 0));
+      // Nested in contextUsageEvent
+      if (payload.contextUsageEvent && typeof payload.contextUsageEvent.contextUsagePercentage === "number") {
+        contextPercentage = Math.max(contextPercentage, payload.contextUsageEvent.contextUsagePercentage);
       }
-      for (const key of Object.keys(value)) visit(value[key]);
-    };
-    for (const event of events) visit(event.payload);
-    return total;
+    }
+    if (contextPercentage <= 0) return 0;
+    const modelInfo = this.getModelInfo(model);
+    const contextWindow = modelInfo?.context_window || 200000;
+    return Math.round((contextPercentage / 100) * contextWindow);
   }
 
   private createStreamResponse(response: Response, model: string): ProviderResult {

@@ -48,6 +48,8 @@ export default function Requests() {
   const [provider, setProvider] = useState("all");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<RequestLog | null>(null);
+  const [page, setPage] = useState(1);
+  const perPage = 25;
 
   async function load() {
     setLoading(true);
@@ -63,7 +65,12 @@ export default function Requests() {
 
   useEffect(() => {
     load();
+    setPage(1);
   }, [provider]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   useEffect(() => {
     const ws = new WebSocket(`${getWsBase()}/ws`);
@@ -132,7 +139,7 @@ export default function Requests() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((req) => (
+                {filtered.slice((page - 1) * perPage, page * perPage).map((req) => (
                   <tr key={req.id} onClick={() => setSelected(req)} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--secondary)]/50 cursor-pointer">
                     <td className="p-4 text-xs text-[var(--muted-foreground)] font-mono">{formatDateTimeID(req.createdAt)}</td>
                     <td className="p-4 text-sm text-[var(--foreground)]">{labelProvider(req.provider)}</td>
@@ -150,6 +157,18 @@ export default function Requests() {
               </tbody>
             </table>
           </div>
+          {filtered.length > perPage && (
+            <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3">
+              <p className="text-xs text-[var(--muted-foreground)]">
+                {(page - 1) * perPage + 1}–{Math.min(page * perPage, filtered.length)} of {filtered.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Prev</Button>
+                <span className="text-xs text-[var(--muted-foreground)]">{page}/{Math.ceil(filtered.length / perPage)}</span>
+                <Button variant="outline" size="sm" disabled={page >= Math.ceil(filtered.length / perPage)} onClick={() => setPage(page + 1)}>Next</Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
