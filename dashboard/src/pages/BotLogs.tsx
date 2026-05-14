@@ -29,7 +29,7 @@ interface ProcessLog {
 }
 
 const liveTypes = new Set([
-  "queue_added", "queue_processing", "login_progress", "login_success", "login_failed", "queue_complete",
+  "queue_added", "queue_processing", "login_progress", "login_success", "login_failed", "queue_complete", "queue_cleared",
 ]);
 
 function statusVariant(type: string): "success" | "warning" | "error" | "secondary" {
@@ -168,6 +168,10 @@ export default function BotLogs() {
 
         if (msg.type === "queue_complete") {
           setQueue((current: any) => ({ ...(current || {}), ...(msg.data || {}), queued: 0, active: 0, processing: false }));
+        }
+        if (msg.type === "queue_cleared") {
+          setQueue((current: any) => ({ ...(current || {}), queued: 0, active: 0, processing: false }));
+          setWarmupQueue((current: any) => ({ ...(current || {}), queued: 0, active: 0, processing: false }));
         }
         const data = msg.data || {};
         const log: AuthLog = {

@@ -69,6 +69,17 @@ authRouter.post("/stop-all", async (c) => {
   const activeIds = getActiveProcessIds();
   for (const id of activeIds) {
     stopLoginProcess(id);
+    // Broadcast stopped event so frontend updates UI immediately
+    const log = addAuthLog({
+      type: "login_failed",
+      accountId: id,
+      error: "Stopped by user",
+      message: "Stopped by user",
+    });
+    broadcast({
+      type: "login_failed",
+      data: { logId: log.id, id, accountId: id, error: "Stopped by user", timestamp: log.timestamp },
+    });
   }
   return c.json({ message: `Queues cleared and ${activeIds.length} active processes killed` });
 });
