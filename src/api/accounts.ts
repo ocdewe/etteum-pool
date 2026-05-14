@@ -121,6 +121,7 @@ accountsRouter.post("/instant-login", async (c) => {
   }
 
   const REFRESH_URL = "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken";
+  const KIRO_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK";
   let success = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -154,21 +155,16 @@ accountsRouter.post("/instant-login", async (c) => {
         continue;
       }
 
-      // Extract email from JWT payload (access token is a JWT)
-      let email = `kiro-pro-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@instant`;
-      try {
-        const parts = data.accessToken!.split(".");
-        if (parts[1]) {
-          const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString());
-          if (payload.email) email = payload.email;
-          else if (payload.sub) email = payload.sub;
-        }
-      } catch {}
+      // Generate email identifier from token (Kiro tokens are not JWT, can't extract email)
+      // Use a hash of the refresh token as unique identifier
+      const tokenHash = trimmed.slice(10, 18);
+      let email = `kiro-${tokenHash}@token.local`;
 
       const tokens = {
         access_token: data.accessToken,
         refresh_token: data.refreshToken || trimmed,
         expires_at: data.expiresAt || null,
+        profile_arn: KIRO_PROFILE_ARN,
       };
 
       // Create or update account as active with tokens
