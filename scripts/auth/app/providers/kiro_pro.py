@@ -46,13 +46,24 @@ class KiroProProviderAdapter(KiroProviderAdapter):
             try:
                 return await self._bootstrap_chromium(account)
             except Exception as e:
-                _debug(f"chromium launch failed: {e}, falling back to camoufox")
-                _emit({
-                    "type": "progress",
-                    "provider": "kiro-pro",
-                    "step": "browser_fallback",
-                    "message": "Chromium unavailable, using camoufox",
-                })
+                err_msg = str(e)
+                # Only fallback if Chromium truly failed to launch (not installed, binary missing)
+                # If it launched but failed during navigation/auth, don't fallback — report the real error
+                is_launch_failure = any(kw in err_msg.lower() for kw in [
+                    "executable doesn't exist", "browser closed", "browser was not found",
+                    "no such file", "not installed", "failed to launch",
+                ])
+                if is_launch_failure:
+                    _debug(f"chromium not available: {e}, falling back to camoufox")
+                    _emit({
+                        "type": "progress",
+                        "provider": "kiro-pro",
+                        "step": "browser_fallback",
+                        "message": "Chromium not installed, using camoufox",
+                    })
+                else:
+                    # Chromium launched but failed during auth — don't fallback, raise the real error
+                    raise
 
         return await self._bootstrap_camoufox(account)
 
@@ -168,6 +179,8 @@ class KiroProProviderAdapter(KiroProviderAdapter):
             "engine": "chromium",
         }
 
+        pw = None
+        browser = None
         try:
             pw = await async_playwright().start()
 
@@ -206,7 +219,7 @@ class KiroProProviderAdapter(KiroProviderAdapter):
             """)
 
             page = await context.new_page()
-            page.set_default_timeout(15000)
+            page.set_default_timeout(30000)
 
             from app.providers.kiro import _extract_code_from_kiro_url
 
@@ -245,7 +258,7 @@ class KiroProProviderAdapter(KiroProviderAdapter):
                 "state": str(uuid.uuid4()),
             })
 
-            await page.goto(auth_url, wait_until="domcontentloaded", timeout=20000)
+            await page.goto(auth_url, wait_until="domcontentloaded", timeout=30000)
 
             state.update({
                 "page": page,
@@ -257,6 +270,17 @@ class KiroProProviderAdapter(KiroProviderAdapter):
             return state
 
         except Exception as exc:
+            # Cleanup browser if it was launched
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+            if pw:
+                try:
+                    await pw.stop()
+                except Exception:
+                    pass
             from app.errors.codes import ErrorCode
             from app.errors.exceptions import RetryableBatcherError
             raise RetryableBatcherError(
