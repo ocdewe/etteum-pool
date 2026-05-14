@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CreditCard, Plus, Trash2, Upload, CheckCircle } from "lucide-react";
+import { CreditCard, Trash2, Upload, CheckCircle, Wand2 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
 import { useTimedMessage } from "@/hooks/useTimedMessage";
 
@@ -34,7 +34,10 @@ export default function VccPool() {
   const [transactions, setTransactions] = useState<VCCTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [bulkText, setBulkText] = useState("");
-  const [singleCard, setSingleCard] = useState({ number: "", exp: "", cvv: "", name: "" });
+  const [genBin, setGenBin] = useState("515462");
+  const [genCount, setGenCount] = useState(10);
+  const [genExpMonth, setGenExpMonth] = useState("05");
+  const [genExpYear, setGenExpYear] = useState("2030");
   const { message, setMessage } = useTimedMessage<string>(null, 3000);
 
   const loadPool = useCallback(async () => {
@@ -62,30 +65,42 @@ export default function VccPool() {
     loadTransactions();
   }, [loadPool, loadTransactions]);
 
-  const handleAddSingle = async () => {
-    if (!singleCard.number || !singleCard.exp || !singleCard.cvv) {
-      setMessage("Card number, expiry, and CVV are required");
+  const handleGenerate = () => {
+    if (!genBin || genBin.length < 4) {
+      setMessage("BIN must be at least 4 digits");
       return;
     }
-    try {
-      await fetchApi("/api/vcc/pool", {
-        method: "POST",
-        body: JSON.stringify({
-          cards: [{
-            number: singleCard.number.replace(/\s/g, ""),
-            exp: singleCard.exp,
-            cvv: singleCard.cvv,
-            name: singleCard.name || "John Doe",
-          }],
-        }),
-      });
-      setSingleCard({ number: "", exp: "", cvv: "", name: "" });
-      setMessage("Card added");
-      loadPool();
-    } catch (e: any) {
-      setMessage(e.message || "Failed to add card");
+    const cards: string[] = [];
+    for (let i = 0; i < genCount; i++) {
+      const number = generateLuhnNumber(genBin, 16);
+      const cvv = String(Math.floor(Math.random() * 900) + 100);
+      cards.push(`${number}|${genExpMonth}|${genExpYear}|${cvv}`);
     }
+    setBulkText((prev) => (prev ? prev + "\n" : "") + cards.join("\n"));
+    setMessage(`Generated ${genCount} cards`);
   };
+
+  function generateLuhnNumber(bin: string, length: number): string {
+    const digits = bin.split("").map(Number);
+    while (digits.length < length - 1) {
+      digits.push(Math.floor(Math.random() * 10));
+    }
+    // Calculate Luhn check digit
+    let sum = 0;
+    let alt = true;
+    for (let i = digits.length - 1; i >= 0; i--) {
+      let n = digits[i];
+      if (alt) {
+        n *= 2;
+        if (n > 9) n -= 9;
+      }
+      sum += n;
+      alt = !alt;
+    }
+    const checkDigit = (10 - (sum % 10)) % 10;
+    digits.push(checkDigit);
+    return digits.join("");
+  }
 
   const handleBulkImport = async () => {
     if (!bulkText.trim()) {
@@ -203,40 +218,41 @@ export default function VccPool() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Add Single Card */}
+        {/* VCC Generator */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Add Card
+              <Wand2 className="w-4 h-4" />
+              Generate VCC
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <Input
-              placeholder="Card number (e.g. 4242424242424242)"
-              value={singleCard.number}
-              onChange={(e) => setSingleCard(s => ({ ...s, number: e.target.value }))}
+              placeholder="BIN prefix (e.g. 515462)"
+              value={genBin}
+              onChange={(e) => setGenBin(e.target.value.replace(/\D/g, "").slice(0, 8))}
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Input
-                placeholder="Exp (MM/YY)"
-                value={singleCard.exp}
-                onChange={(e) => setSingleCard(s => ({ ...s, exp: e.target.value }))}
+                placeholder="Month (MM)"
+                value={genExpMonth}
+                onChange={(e) => setGenExpMonth(e.target.value.replace(/\D/g, "").slice(0, 2))}
               />
               <Input
-                placeholder="CVV"
-                value={singleCard.cvv}
-                onChange={(e) => setSingleCard(s => ({ ...s, cvv: e.target.value }))}
+                placeholder="Year (YYYY)"
+                value={genExpYear}
+                onChange={(e) => setGenExpYear(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              />
+              <Input
+                type="number"
+                placeholder="Count"
+                value={genCount}
+                onChange={(e) => setGenCount(Math.max(1, Math.min(100, Number(e.target.value))))}
               />
             </div>
-            <Input
-              placeholder="Name on card (optional)"
-              value={singleCard.name}
-              onChange={(e) => setSingleCard(s => ({ ...s, name: e.target.value }))}
-            />
-            <Button onClick={handleAddSingle} className="w-full">
-              <CreditCard className="w-4 h-4 mr-2" />
-              Add to Pool
+            <Button onClick={handleGenerate} className="w-full">
+              <Wand2 className="w-4 h-4 mr-2" />
+              Generate {genCount} Cards
             </Button>
           </CardContent>
         </Card>
