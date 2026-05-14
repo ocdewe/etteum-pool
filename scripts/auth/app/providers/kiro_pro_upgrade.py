@@ -337,7 +337,9 @@ async def detect_failure(page: Any) -> Optional[str]:
         """)
         if field_error:
             normalized = " ".join(field_error.strip().lower().split())
-            terminal = ["declin", "insufficient", "invalid", "expired", "unable to authenticate"]
+            terminal = ["declin", "insufficient", "invalid", "expired", "unable to authenticate",
+                        "different payment method", "try again", "processing your payment",
+                        "could not be processed", "was not successful"]
             if any(p in normalized for p in terminal):
                 return f"declined: {field_error[:200]}"
 

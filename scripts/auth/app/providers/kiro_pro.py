@@ -421,6 +421,14 @@ class KiroProProviderAdapter(KiroProviderAdapter):
                 last_error = message
                 continue
             else:
+                # If error suggests trying different payment method, treat as declined and try next card
+                msg_lower = (message or "").lower()
+                if any(kw in msg_lower for kw in ["different payment method", "try again", "processing your payment"]):
+                    pool.mark_declined(card)
+                    _emit({"type": "progress", "provider": "kiro-pro", "step": "upgrade_card_declined",
+                           "message": f"Card ****{card.last4} payment error, trying next..."})
+                    last_error = message
+                    continue
                 last_error = message
                 break
 
