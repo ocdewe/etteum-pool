@@ -103,8 +103,7 @@ export default function Accounts() {
   async function handleAdd() {
     if (!addDialogProvider) return;
     try {
-      const payload: any = { email: addForm.email, password: addForm.password, provider: addDialogProvider, headless: addForm.headless };
-      if (addDialogProvider === "kiro-pro") payload.browserEngine = addForm.browserEngine;
+      const payload: any = { email: addForm.email, password: addForm.password, provider: addDialogProvider, headless: addForm.headless, browserEngine: addForm.browserEngine };
       await createAccount(payload);
       showSuccess("Account added and bot login started.");
       setAddForm({ email: "", password: "", provider: "kiro", browserEngine: "camoufox", headless: false });
@@ -250,15 +249,13 @@ export default function Accounts() {
               <label className="text-sm text-[var(--foreground)]">Password</label>
               <Input value={addForm.password} onChange={(e) => setAddForm({ ...addForm, password: e.target.value })} type="password" placeholder="********" className="mt-1" />
             </div>
-            {addDialogProvider === "kiro-pro" && (
-              <div>
-                <label className="text-sm text-[var(--foreground)]">Browser Engine</label>
-                <select value={addForm.browserEngine} onChange={(e) => setAddForm({ ...addForm, browserEngine: e.target.value })} className="mt-1 w-full h-9 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)]">
-                  <option value="camoufox">Camoufox (Anti-detect, default)</option>
-                  <option value="chromium">Chromium (Playwright)</option>
-                </select>
-              </div>
-            )}
+            <div>
+              <label className="text-sm text-[var(--foreground)]">Browser Engine</label>
+              <select value={addForm.browserEngine} onChange={(e) => setAddForm({ ...addForm, browserEngine: e.target.value })} className="mt-1 w-full h-9 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)]">
+                <option value="camoufox">Camoufox (Anti-detect, default)</option>
+                <option value="chromium">Chromium (Playwright)</option>
+              </select>
+            </div>
             <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
               <input type="checkbox" checked={addForm.headless} onChange={(e) => setAddForm({ ...addForm, headless: e.target.checked })} className="h-4 w-4 rounded border-[var(--border)]" />
               Run browser headless
