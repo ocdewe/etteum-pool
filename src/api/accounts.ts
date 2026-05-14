@@ -109,6 +109,98 @@ accountsRouter.post("/", async (c) => {
 });
 
 /**
+ * POST /api/accounts/instant-login - Kiro Pro instant login via refresh token (bulk)
+ * No browser needed — just exchange refresh token for access token
+ */
+accountsRouter.post("/instant-login", async (c) => {
+  const body = await c.req.json<{ tokens: Array<{ email: string; refreshToken: string }> }>();
+
+  if (!body.tokens || !Array.isArray(body.tokens) || body.tokens.length === 0) {
+    return c.json({ error: "tokens array is required (each item: { email, refreshToken })" }, 400);
+  }
+
+  const REFRESH_URL = "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken";
+  let success = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const item of body.tokens) {
+    if (!item.email || !item.refreshToken) {
+      errors.push(`Missing email or refreshToken`);
+      failed++;
+      continue;
+    }
+
+    try {
+      const response = await fetch(REFRESH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken: item.refreshToken }),
+      });
+
+      if (!response.ok) {
+        errors.push(`${item.email}: refresh failed (${response.status})`);
+        failed++;
+        continue;
+      }
+
+      const data = await response.json() as {
+        accessToken?: string;
+        refreshToken?: string;
+        expiresAt?: string;
+      };
+
+      if (!data.accessToken) {
+        errors.push(`${item.email}: no access token received`);
+        failed++;
+        continue;
+      }
+
+      const tokens = {
+        access_token: data.accessToken,
+        refresh_token: data.refreshToken || item.refreshToken,
+        expires_at: data.expiresAt || null,
+      };
+
+      // Create or update account as active with tokens
+      const existing = await db.select().from(accounts)
+        .where(eq(accounts.email, item.email))
+        .then((rows) => rows.find((r) => r.provider === "kiro-pro"));
+
+      if (existing) {
+        await db.update(accounts).set({
+          status: "active",
+          tokens: tokens as unknown,
+          errorMessage: null,
+          lastLoginAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(accounts.id, existing.id));
+      } else {
+        await db.insert(accounts).values({
+          provider: "kiro-pro",
+          email: item.email,
+          password: encrypt("instant-login"),
+          status: "active",
+          tokens: tokens as unknown,
+          lastLoginAt: new Date(),
+        });
+      }
+      success++;
+    } catch (err) {
+      errors.push(`${item.email}: ${err instanceof Error ? err.message : String(err)}`);
+      failed++;
+    }
+  }
+
+  pool.invalidate("kiro-pro" as ProviderName);
+  if (success > 0) {
+    broadcast({ type: "accounts_updated", data: { provider: "kiro-pro", count: success } });
+  }
+
+  return c.json({ success, failed, errors: errors.length > 0 ? errors : undefined });
+});
+
+/**
  * POST /api/accounts/bulk - Create multiple accounts
  */
 accountsRouter.post("/bulk", async (c) => {
