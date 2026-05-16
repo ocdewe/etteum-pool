@@ -77,9 +77,9 @@ def generate_media(cookies: dict, prompt: str, mode: str = "image", timeout: int
     media_type = "MAGIC_MEDIA" if mode == "image" else "MAGIC_MEDIA_VIDEO"
 
     # Build request body
-    # Single image/video: A?=F, prompt in A
-    # Multiple images: A?=O, prompt in f, count in k
-    if mode == "image" and count > 1:
+    # Always use batch mode (A?=O) for images — single mode (A?=F) generates
+    # URLs without .png extension that often return 403
+    if mode == "image":
         body = {
             "a": "B",
             "b": {"A": media_type},

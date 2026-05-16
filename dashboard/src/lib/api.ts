@@ -181,6 +181,16 @@ export async function deleteAccount(id: number) {
   return fetchApi(`/api/accounts/${id}`, { method: "DELETE" });
 }
 
+export async function toggleAccountEnabled(id: number, enabled?: boolean) {
+  return fetchApi<{ id: number; enabled: boolean; status: string; provider: string }>(
+    `/api/accounts/${id}/toggle`,
+    {
+      method: "POST",
+      body: JSON.stringify(typeof enabled === "boolean" ? { enabled } : {}),
+    },
+  );
+}
+
 export async function loginAccount(id: number, options?: { headless?: boolean }) {
   return fetchApi(`/api/auth/login/${id}`, {
     method: "POST",

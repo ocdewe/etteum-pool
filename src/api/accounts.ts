@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db/index";
-import { accounts } from "../db/schema";
+import { accounts, requestLogs, vccCards, vccTransactions } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { encrypt, decrypt } from "../utils/crypto";
 import { broadcast } from "../ws/index";
@@ -259,6 +259,7 @@ accountsRouter.patch("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const body = await c.req.json<Partial<{
     status: "active" | "exhausted" | "error" | "pending";
+    enabled: boolean;
     tokens: Record<string, unknown>;
     password: string;
     quotaLimit: number;
@@ -272,6 +273,7 @@ accountsRouter.patch("/:id", async (c) => {
   };
 
   if (body.status) updateData.status = body.status;
+  if (typeof body.enabled === "boolean") updateData.enabled = body.enabled;
   if (body.tokens) updateData.tokens = body.tokens;
   if (body.password) updateData.password = encrypt(body.password);
   if (body.quotaLimit !== undefined) updateData.quotaLimit = body.quotaLimit;
@@ -293,10 +295,41 @@ accountsRouter.patch("/:id", async (c) => {
   pool.invalidate(updated.provider as ProviderName);
   broadcast({
     type: "account_updated",
-    data: { id: updated.id, status: updated.status, provider: updated.provider },
+    data: { id: updated.id, status: updated.status, enabled: updated.enabled, provider: updated.provider },
   });
 
   return c.json({ ...updated, password: "***", tokens: updated.tokens ? "[set]" : null });
+});
+
+/**
+ * POST /api/accounts/:id/toggle - Toggle account enabled flag
+ */
+accountsRouter.post("/:id/toggle", async (c) => {
+  const id = Number(c.req.param("id"));
+  const body = await c.req.json<{ enabled?: boolean }>().catch(() => ({} as { enabled?: boolean }));
+
+  const [current] = await db
+    .select({ enabled: accounts.enabled })
+    .from(accounts)
+    .where(eq(accounts.id, id));
+
+  if (!current) {
+    return c.json({ error: "Account not found" }, 404);
+  }
+
+  const next = typeof body.enabled === "boolean" ? body.enabled : !current.enabled;
+  const updated = await pool.setEnabled(id, next);
+
+  if (!updated) {
+    return c.json({ error: "Account not found" }, 404);
+  }
+
+  return c.json({
+    id: updated.id,
+    enabled: updated.enabled,
+    status: updated.status,
+    provider: updated.provider,
+  });
 });
 
 /**
@@ -304,6 +337,11 @@ accountsRouter.patch("/:id", async (c) => {
  */
 accountsRouter.delete("/:id", async (c) => {
   const id = Number(c.req.param("id"));
+
+  // Nullify foreign key references before deleting
+  await db.update(requestLogs).set({ accountId: null }).where(eq(requestLogs.accountId, id));
+  await db.update(vccCards).set({ usedByAccountId: null }).where(eq(vccCards.usedByAccountId, id));
+  await db.delete(vccTransactions).where(eq(vccTransactions.accountId, id));
 
   const result = await db
     .delete(accounts)

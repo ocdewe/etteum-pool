@@ -12,6 +12,7 @@ import {
   fetchAccounts,
   loginAccount,
   loginAccounts,
+  toggleAccountEnabled,
   warmupAccount,
   warmupAllAccounts,
 } from "@/lib/api";
@@ -24,6 +25,7 @@ interface Account {
   email: string;
   provider: Provider;
   status: Status;
+  enabled?: boolean;
   quotaLimit?: number;
   quotaRemaining?: number;
   lastUsedAt?: string | null;
@@ -110,6 +112,18 @@ export default function AccountList() {
     try { await deleteAccount(id); showSuccess(`Deleted #${id}`); await load(); } catch (err) { showError(err); }
   }
 
+  async function handleToggle(id: number, currentEnabled: boolean) {
+    const next = !currentEnabled;
+    setAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: next } : a)));
+    try {
+      await toggleAccountEnabled(id, next);
+      showSuccess(next ? `Aktifkan #${id}` : `Non-aktifkan #${id}`);
+    } catch (err) {
+      setAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, enabled: currentEnabled } : a)));
+      showError(err);
+    }
+  }
+
   const filtered = useMemo(() => {
     return accounts.filter((a) => a.email.toLowerCase().includes(search.toLowerCase()));
   }, [accounts, search]);
@@ -135,7 +149,7 @@ export default function AccountList() {
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button variant="outline" size="sm" onClick={handleWarmupAll} disabled={provider === "canva"}>
+          <Button variant="outline" size="sm" onClick={handleWarmupAll}>
             <RefreshCw className="w-4 h-4 mr-2" /> Warmup All
           </Button>
           <Button variant="outline" size="sm" onClick={handleRetryErrors} disabled={errorCount === 0}>
@@ -166,24 +180,39 @@ export default function AccountList() {
                 <tr className="border-b border-[var(--border)]">
                   <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Email</th>
                   <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Status</th>
+                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Enabled</th>
                   <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Credit</th>
                   <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Last Login</th>
                   <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.slice((page - 1) * perPage, page * perPage).map((account) => (
-                  <tr key={account.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--secondary)]/50">
+                {filtered.slice((page - 1) * perPage, page * perPage).map((account) => {
+                  const isEnabled = account.enabled !== false;
+                  return (
+                  <tr key={account.id} className={`border-b border-[var(--border)] last:border-0 hover:bg-[var(--secondary)]/50 ${isEnabled ? "" : "opacity-50"}`}>
                     <td className="p-4 text-sm text-[var(--foreground)]">
                       <div>{account.email}</div>
                       {account.errorMessage && <div className="text-xs text-red-400 mt-1 line-clamp-1" title={account.errorMessage}>{account.errorMessage}</div>}
                     </td>
                     <td className="p-4"><Badge variant={statusVariants[account.status]}>{account.status}</Badge></td>
+                    <td className="p-4">
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isEnabled}
+                        onClick={() => handleToggle(account.id, isEnabled)}
+                        title={isEnabled ? "Klik untuk non-aktifkan" : "Klik untuk aktifkan"}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:ring-offset-1 focus:ring-offset-[var(--background)] ${isEnabled ? "bg-green-500" : "bg-[var(--secondary)]"}`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                      </button>
+                    </td>
                     <td className="p-4 text-sm text-[var(--muted-foreground)]">{formatCredit(account.quotaRemaining)}/{formatCredit(account.quotaLimit)}</td>
                     <td className="p-4 text-xs text-[var(--muted-foreground)]">{formatDate(account.lastLoginAt || account.lastUsedAt)}</td>
                     <td className="p-4">
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleWarmup(account.id)} title="WarmUp" disabled={provider === "canva"}>
+                        <Button variant="ghost" size="icon" onClick={() => handleWarmup(account.id)} title="WarmUp">
                           <RefreshCw className="w-4 h-4 text-yellow-400" />
                         </Button>
                         <Button variant="ghost" size="icon" onClick={() => handleLogin(account.id)} title="Queue login" disabled={account.status !== "pending" && account.status !== "error"}>
@@ -195,9 +224,10 @@ export default function AccountList() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!loading && filtered.length === 0 && (
-                  <tr><td colSpan={5} className="p-8 text-center text-sm text-[var(--muted-foreground)]">No accounts found</td></tr>
+                  <tr><td colSpan={6} className="p-8 text-center text-sm text-[var(--muted-foreground)]">No accounts found</td></tr>
                 )}
               </tbody>
             </table>

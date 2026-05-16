@@ -182,7 +182,11 @@ class AccountPool {
       .select()
       .from(accounts)
       .where(
-        and(eq(accounts.provider, provider), eq(accounts.status, "active"))
+        and(
+          eq(accounts.provider, provider),
+          eq(accounts.status, "active"),
+          eq(accounts.enabled, true),
+        )
       );
   }
 
@@ -345,6 +349,29 @@ class AccountPool {
   }
 
   /**
+   * Toggle account enabled flag (user-controlled active/inactive).
+   */
+  async setEnabled(accountId: number, enabled: boolean): Promise<Account | null> {
+    const [account] = await db
+      .update(accounts)
+      .set({
+        enabled,
+        updatedAt: new Date(),
+      })
+      .where(eq(accounts.id, accountId))
+      .returning();
+
+    if (!account) return null;
+
+    this.invalidate(account.provider as ProviderName);
+    broadcast({
+      type: "account_status",
+      data: { id: accountId, enabled, provider: account.provider, status: account.status },
+    });
+    return account;
+  }
+
+  /**
    * Get pool statistics
    */
   async getStats(): Promise<{
@@ -353,35 +380,39 @@ class AccountPool {
     exhausted: number;
     error: number;
     pending: number;
-    byProvider: Record<string, { active: number; total: number }>;
+    disabled: number;
+    byProvider: Record<string, { active: number; total: number; disabled: number }>;
   }> {
     const [totals, providerRows] = await Promise.all([
       db
         .select({
           total: sql<number>`count(*)`,
-          active: sql<number>`SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)`,
+          active: sql<number>`SUM(CASE WHEN status = 'active' AND enabled = true THEN 1 ELSE 0 END)`,
           exhausted: sql<number>`SUM(CASE WHEN status = 'exhausted' THEN 1 ELSE 0 END)`,
           error: sql<number>`SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END)`,
           pending: sql<number>`SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END)`,
+          disabled: sql<number>`SUM(CASE WHEN enabled = false THEN 1 ELSE 0 END)`,
         })
         .from(accounts),
       db
         .select({
           provider: accounts.provider,
           total: sql<number>`count(*)`,
-          active: sql<number>`SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)`,
+          active: sql<number>`SUM(CASE WHEN status = 'active' AND enabled = true THEN 1 ELSE 0 END)`,
+          disabled: sql<number>`SUM(CASE WHEN enabled = false THEN 1 ELSE 0 END)`,
         })
         .from(accounts)
         .groupBy(accounts.provider),
     ]);
 
     const totalRow = totals[0];
-    const byProvider: Record<string, { active: number; total: number }> = {};
+    const byProvider: Record<string, { active: number; total: number; disabled: number }> = {};
 
     for (const row of providerRows) {
       byProvider[row.provider] = {
         active: row.active || 0,
         total: row.total || 0,
+        disabled: row.disabled || 0,
       };
     }
 
@@ -391,6 +422,7 @@ class AccountPool {
       exhausted: totalRow?.exhausted || 0,
       error: totalRow?.error || 0,
       pending: totalRow?.pending || 0,
+      disabled: totalRow?.disabled || 0,
       byProvider,
     };
   }

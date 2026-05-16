@@ -258,7 +258,7 @@ export default function Accounts() {
                 <Button className="w-full" variant="default" size="sm" onClick={() => setAddDialogProvider(stat.provider)}>
                   <Plus className="mr-1 h-4 w-4" /> Add
                 </Button>
-                <Button className="w-full" variant="outline" size="sm" onClick={() => handleWarmupProvider(stat.provider)} disabled={stat.provider === "canva"}>
+                <Button className="w-full" variant="outline" size="sm" onClick={() => handleWarmupProvider(stat.provider)}>
                   <RefreshCw className="mr-1 h-4 w-4" /> Warmup
                 </Button>
                 <Button className="w-full" variant="outline" size="sm" onClick={() => handleRetryErrors(stat.provider)} disabled={stat.error === 0}>

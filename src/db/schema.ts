@@ -1,4 +1,4 @@
-import { pgTable, serial, text, real, integer, bigint, timestamp, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, real, integer, bigint, boolean, timestamp, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 export const accounts = pgTable("accounts", {
   id: serial("id").primaryKey(),
@@ -6,6 +6,7 @@ export const accounts = pgTable("accounts", {
   email: text("email").notNull(),
   password: text("password").notNull(), // encrypted
   status: text("status").notNull().default("pending"), // active | exhausted | error | pending
+  enabled: boolean("enabled").notNull().default(true), // user toggle: false = skip in upstream pool
   tokens: jsonb("tokens"), // { access_token, refresh_token, ... }
   quotaLimit: real("quota_limit").default(0),
   quotaRemaining: real("quota_remaining").default(0),

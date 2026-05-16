@@ -7,6 +7,7 @@ import { ZaiProvider } from "./providers/zai";
 import { WindsurfProvider } from "./providers/windsurf";
 import { MoclawProvider } from "./providers/moclaw";
 import { isNonAccountRequestError } from "./errors";
+import { applyPudidilFilters } from "./filters";
 import { pool } from "./pool";
 import type { Account } from "../db/schema";
 
@@ -48,6 +49,65 @@ function requestHasImages(request: ChatCompletionRequest): boolean {
 }
 
 /**
+ * Sanitize request by applying pudidil filters to all text content.
+ * Strips Claude Code identity, billing headers, and other patterns
+ * that trigger content moderation on upstream providers.
+ */
+function sanitizeRequest(request: ChatCompletionRequest): ChatCompletionRequest {
+  const sanitized = { ...request };
+
+  sanitized.messages = request.messages.map((msg) => {
+    if (typeof msg.content === "string") {
+      return { ...msg, content: applyPudidilFilters(msg.content) };
+    }
+    if (Array.isArray(msg.content)) {
+      return {
+        ...msg,
+        content: (msg.content as any[]).map((block) => {
+          if (block?.type === "text" && typeof block.text === "string") {
+            return { ...block, text: applyPudidilFilters(block.text) };
+          }
+          if (block?.type === "tool_result") {
+            if (typeof block.content === "string") {
+              return { ...block, content: applyPudidilFilters(block.content) };
+            }
+            if (Array.isArray(block.content)) {
+              return {
+                ...block,
+                content: block.content.map((inner: any) =>
+                  inner?.type === "text" && typeof inner.text === "string"
+                    ? { ...inner, text: applyPudidilFilters(inner.text) }
+                    : inner
+                ),
+              };
+            }
+          }
+          return block;
+        }),
+      };
+    }
+    return msg;
+  });
+
+  if (sanitized.tools) {
+    sanitized.tools = request.tools!.map((tool: any) => {
+      if (tool?.function?.description) {
+        return {
+          ...tool,
+          function: {
+            ...tool.function,
+            description: applyPudidilFilters(tool.function.description),
+          },
+        };
+      }
+      return tool;
+    });
+  }
+
+  return sanitized;
+}
+
+/**
  * Route a chat completion request to the appropriate provider/account.
  * Implements retry logic with fallback to next account.
  */
@@ -55,10 +115,13 @@ export async function routeRequest(
   request: ChatCompletionRequest,
   stream: boolean
 ): Promise<RouteResult> {
-  const hasImages = requestHasImages(request);
-  const providerName = pool.getProviderForModel(request.model);
+  // Apply content filters to strip Claude Code identity, billing headers, etc.
+  const sanitizedRequest = sanitizeRequest(request);
+
+  const hasImages = requestHasImages(sanitizedRequest);
+  const providerName = pool.getProviderForModel(sanitizedRequest.model);
   if (!providerName) {
-    throw new Error(`No provider found for model: ${request.model}`);
+    throw new Error(`No provider found for model: ${sanitizedRequest.model}`);
   }
 
   const provider = providers[providerName];
@@ -68,10 +131,10 @@ export async function routeRequest(
 
   // Reject image requests for models that don't support vision
   if (hasImages) {
-    const modelInfo = provider.getModelInfo(request.model);
+    const modelInfo = provider.getModelInfo(sanitizedRequest.model);
     if (modelInfo && !modelInfo.vision) {
       throw new Error(
-        `Model "${request.model}" does not support image/vision inputs. Use a vision-capable model instead.`
+        `Model "${sanitizedRequest.model}" does not support image/vision inputs. Use a vision-capable model instead.`
       );
     }
   }
@@ -95,8 +158,8 @@ export async function routeRequest(
       pool.trackRequestStart(account.id);
       tracked = true;
       const result = stream
-        ? await provider.chatCompletionStream(account, request)
-        : await provider.chatCompletion(account, request);
+        ? await provider.chatCompletionStream(account, sanitizedRequest)
+        : await provider.chatCompletion(account, sanitizedRequest);
 
       const durationMs = Date.now() - startTime;
 
@@ -116,7 +179,7 @@ export async function routeRequest(
       // is a bad request, not an account/session failure, so stop retrying and
       // let the API layer return an invalid_model response.
       if (isNonAccountRequestError(result.error)) {
-        throw new Error(result.error || `Invalid model: ${request.model}`);
+        throw new Error(result.error || `Invalid model: ${sanitizedRequest.model}`);
       }
 
       // Handle quota exhaustion
@@ -145,8 +208,8 @@ export async function routeRequest(
           pool.trackRequestStart(account.id);
           tracked = true;
           const retryResult = stream
-            ? await provider.chatCompletionStream(account, request)
-            : await provider.chatCompletion(account, request);
+            ? await provider.chatCompletionStream(account, sanitizedRequest)
+            : await provider.chatCompletion(account, sanitizedRequest);
 
           if (retryResult.success) {
             await pool.markUsed(account.id);

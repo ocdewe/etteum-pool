@@ -182,10 +182,11 @@ statsRouter.get("/providers", async (c) => {
   const quotaStats = await db
     .select({
       provider: accounts.provider,
-      activeAccounts: sql<number>`SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)`,
+      activeAccounts: sql<number>`SUM(CASE WHEN status = 'active' AND enabled = true THEN 1 ELSE 0 END)`,
       exhaustedAccounts: sql<number>`SUM(CASE WHEN status = 'exhausted' THEN 1 ELSE 0 END)`,
       errorAccounts: sql<number>`SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END)`,
       pendingAccounts: sql<number>`SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END)`,
+      disabledAccounts: sql<number>`SUM(CASE WHEN enabled = false THEN 1 ELSE 0 END)`,
       totalAccounts: sql<number>`count(*)`,
       quotaLimit: sql<number>`COALESCE(SUM(quota_limit), 0)`,
       quotaRemaining: sql<number>`COALESCE(SUM(quota_remaining), 0)`,

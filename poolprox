@@ -29,9 +29,18 @@ rotate_log() {
 }
 
 do_start() {
-  if is_running; then
-    echo "PoolProx already running (PID $(cat $PID_FILE))"
-    return 0
+  source "$ENV_FILE" 2>/dev/null
+  local api_port="${PORT:-1630}"
+  local dash_port="${DASHBOARD_PORT:-1631}"
+
+  # Check if ports are already in use
+  if ss -tlnp 2>/dev/null | grep -q ":${api_port} "; then
+    echo "❌ Port $api_port already in use. Run 'poolprox stop' first."
+    return 1
+  fi
+  if ss -tlnp 2>/dev/null | grep -q ":${dash_port} "; then
+    echo "❌ Port $dash_port already in use. Run 'poolprox stop' first."
+    return 1
   fi
 
   rotate_log
@@ -43,10 +52,9 @@ do_start() {
   sleep 1
 
   if kill -0 "$pid" 2>/dev/null; then
-    source "$ENV_FILE" 2>/dev/null
     echo "✅ PoolProx started (PID $pid)"
-    echo "   Backend:   http://localhost:${PORT:-1630}"
-    echo "   Dashboard: http://localhost:${DASHBOARD_PORT:-1631}"
+    echo "   Backend:   http://localhost:${api_port}"
+    echo "   Dashboard: http://localhost:${dash_port}"
     echo "   Logs:      poolprox logs"
   else
     rm -f "$PID_FILE"
@@ -57,27 +65,26 @@ do_start() {
 }
 
 do_stop() {
-  if ! is_running; then
-    echo "PoolProx is not running"
-    return 0
-  fi
+  echo "Stopping PoolProx..."
 
-  local pid=$(cat "$PID_FILE")
-  echo "Stopping PoolProx (PID $pid)..."
+  # Kill ALL poolprox-related bun processes regardless of PID file
+  pkill -f "bun scripts/production.ts" 2>/dev/null
+  pkill -f "bun src/index.ts" 2>/dev/null
+  pkill -f "bun run scripts/serve-dashboard.ts" 2>/dev/null
 
-  # Kill entire process group (parent + children)
-  pkill -P "$pid" 2>/dev/null
-  kill "$pid" 2>/dev/null
-
+  # Wait for processes to die
   local i=0
-  while kill -0 "$pid" 2>/dev/null && [ $i -lt 10 ]; do
+  while pgrep -f "bun src/index.ts" >/dev/null 2>&1 && [ $i -lt 10 ]; do
     sleep 0.5
     i=$((i + 1))
   done
 
-  if kill -0 "$pid" 2>/dev/null; then
-    pkill -9 -P "$pid" 2>/dev/null
-    kill -9 "$pid" 2>/dev/null
+  # Force kill if still alive
+  if pgrep -f "bun src/index.ts" >/dev/null 2>&1; then
+    pkill -9 -f "bun scripts/production.ts" 2>/dev/null
+    pkill -9 -f "bun src/index.ts" 2>/dev/null
+    pkill -9 -f "bun run scripts/serve-dashboard.ts" 2>/dev/null
+    sleep 0.5
   fi
 
   rm -f "$PID_FILE"
