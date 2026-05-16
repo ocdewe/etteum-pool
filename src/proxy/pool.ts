@@ -227,13 +227,8 @@ class AccountPool {
     // === MOCLAW ===
     if (m.includes("moclaw") || m === "mo-auto") return "moclaw";
 
-    // === KIRO PRO (Opus models) ===
+    // === KIRO PRO ===
     if (m.startsWith("kp-")) return "kiro-pro";
-    if (m === "claude-opus-4.7") return "kiro-pro";
-    if (m === "claude-opus-4.7-thinking") return "kiro-pro";
-    if (m === "claude-opus-4.6") return "kiro-pro";
-    if (m === "claude-opus-4.6-thinking") return "kiro-pro";
-    if (m === "claude-opus-4.5") return "kiro-pro";
 
     // === CODEBUDDY (MAX tier) ===
     if (m.startsWith("cb-")) return "codebuddy";
