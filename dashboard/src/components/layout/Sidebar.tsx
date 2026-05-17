@@ -11,6 +11,7 @@ import {
   Bot,
   CreditCard,
   Globe,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +33,12 @@ const navSections: NavSection[] = [
       { label: "Dashboard", path: "/", icon: LayoutDashboard },
       { label: "Accounts", path: "/accounts", icon: Users },
       { label: "Models", path: "/models", icon: Cpu },
+    ],
+  },
+  {
+    title: "TOOLS",
+    items: [
+      { label: "Image Studio", path: "/image-studio", icon: Sparkles },
     ],
   },
   {

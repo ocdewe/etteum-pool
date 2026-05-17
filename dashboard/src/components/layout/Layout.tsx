@@ -5,7 +5,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen bg-[var(--background)]">
       <Sidebar />
-      <main className="ml-[240px] p-6">
+      <main className="ml-[240px] h-screen overflow-y-auto p-6">
         <Outlet />
       </main>
     </div>

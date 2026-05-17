@@ -28,6 +28,7 @@ interface WorkerInput {
   cookies: CanvaTokens;
   timeout?: number;
   count?: number;
+  aspect?: string;
 }
 
 interface WorkerOutput {
@@ -157,11 +158,13 @@ export class CanvaProvider extends BaseProvider {
 
     // Support n parameter for number of images (1-4, default 4 for image, 1 for video)
     const count = mode === "video" ? 1 : Math.min(4, Math.max(1, (request as any).n || 4));
+    // Support aspect_ratio / size parameter (e.g. "1:1", "16:9", "9:16")
+    const aspect = (request as any).aspect_ratio || (request as any).size || "1:1";
     const timeoutMs = mode === "video" ? WORKER_TIMEOUT_VIDEO : WORKER_TIMEOUT_IMAGE;
     const timeoutSec = Math.floor(timeoutMs / 1000) - 5;
 
     const result = await this.runWorker(
-      { mode, prompt: prompt.trim(), cookies: tokens, timeout: timeoutSec, count },
+      { mode, prompt: prompt.trim(), cookies: tokens, timeout: timeoutSec, count, aspect },
       timeoutMs,
     );
 
@@ -188,11 +191,23 @@ export class CanvaProvider extends BaseProvider {
       usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: count },
     };
 
+    // Real Canva credit consumption (verified by quota probing 2026-05-16):
+    //   image n=1 → 3, n=2 → 5, n=3 → 7, n=4 → 10  (≈ 2n + 1, with n=4 rounded up)
+    //   video → 25 credits per generation
+    let realCreditsUsed: number;
+    if (mode === "video") {
+      realCreditsUsed = 25;
+    } else if (count === 4) {
+      realCreditsUsed = 10;
+    } else {
+      realCreditsUsed = 2 * count + 1;
+    }
+
     return {
       success: true,
       response,
       tokensUsed: count,
-      creditsUsed: count,
+      creditsUsed: realCreditsUsed,
       creditSource: "fixed",
     };
   }

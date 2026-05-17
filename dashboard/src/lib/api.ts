@@ -295,3 +295,138 @@ export async function checkProxy(id: number) {
 export async function checkAllProxies() {
   return fetchApi("/api/proxy-pool/pool/check-all", { method: "POST" });
 }
+
+// Image Studio
+export interface AssistModelInfo {
+  id: string;
+  provider: string;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export async function fetchAssistModels(): Promise<{ data: AssistModelInfo[] }> {
+  return fetchApi("/api/image-studio/assist-models");
+}
+
+export async function assistPrompt(payload: {
+  message: string;
+  history?: ChatMessage[];
+  model?: string;
+}): Promise<{ reply: string; options: string[]; finalPrompt: string | null }> {
+  return fetchApi("/api/image-studio/assist", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeoutMs: 90_000,
+  });
+}
+
+export async function generateImage(payload: {
+  prompt: string;
+  type?: "image" | "video";
+  aspectRatio?: string;
+  n?: number;
+  chatId?: number | null;
+}): Promise<{
+  id?: number;
+  urls: string[];
+  prompt: string;
+  type: string;
+  aspectRatio: string;
+  n: number;
+  creditsUsed: number;
+  createdAt?: string;
+  account: { id: number; email: string };
+}> {
+  return fetchApi("/api/image-studio/generate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeoutMs: 420_000,
+  });
+}
+
+export interface StoredChat {
+  id: number;
+  title: string | null;
+  messages: ChatMessage[];
+  finalPrompt: string | null;
+  options: string[];
+  assistModel: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredResult {
+  id: number;
+  chatId: number | null;
+  prompt: string;
+  type: "image" | "video";
+  aspectRatio: string;
+  n: number;
+  urls: string[];
+  creditsUsed: number;
+  createdAt: string;
+}
+
+export async function fetchChats(): Promise<{ data: StoredChat[] }> {
+  return fetchApi("/api/image-studio/chats");
+}
+
+export async function fetchChat(id: number): Promise<StoredChat> {
+  return fetchApi(`/api/image-studio/chats/${id}`);
+}
+
+export async function createChat(payload: {
+  title?: string | null;
+  messages?: ChatMessage[];
+  finalPrompt?: string | null;
+  options?: string[];
+  assistModel?: string | null;
+}): Promise<StoredChat> {
+  return fetchApi("/api/image-studio/chats", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateChat(
+  id: number,
+  payload: {
+    title?: string | null;
+    messages?: ChatMessage[];
+    finalPrompt?: string | null;
+    options?: string[];
+    assistModel?: string | null;
+  },
+): Promise<StoredChat> {
+  return fetchApi(`/api/image-studio/chats/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteChat(id: number): Promise<{ ok: boolean }> {
+  return fetchApi(`/api/image-studio/chats/${id}`, { method: "DELETE" });
+}
+
+export async function fetchResults(params?: {
+  chatId?: number;
+  limit?: number;
+}): Promise<{ data: StoredResult[] }> {
+  const qs = new URLSearchParams();
+  if (params?.chatId !== undefined) qs.set("chatId", String(params.chatId));
+  if (params?.limit !== undefined) qs.set("limit", String(params.limit));
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return fetchApi(`/api/image-studio/results${suffix}`);
+}
+
+export async function deleteResult(id: number): Promise<{ ok: boolean }> {
+  return fetchApi(`/api/image-studio/results/${id}`, { method: "DELETE" });
+}
+
+export async function clearResults(chatId?: number): Promise<{ ok: boolean }> {
+  const suffix = chatId !== undefined ? `?chatId=${chatId}` : "";
+  return fetchApi(`/api/image-studio/results${suffix}`, { method: "DELETE" });
+}

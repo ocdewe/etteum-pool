@@ -103,6 +103,34 @@ export const vccTransactions = pgTable("vcc_transactions", {
   index("vcc_transactions_status_idx").on(table.status),
 ]);
 
+export const imageStudioChats = pgTable("image_studio_chats", {
+  id: serial("id").primaryKey(),
+  title: text("title"),
+  messages: jsonb("messages").notNull().default([]),
+  finalPrompt: text("final_prompt"),
+  options: jsonb("options").default([]),
+  assistModel: text("assist_model"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("image_studio_chats_updated_at_idx").on(table.updatedAt),
+]);
+
+export const imageStudioResults = pgTable("image_studio_results", {
+  id: serial("id").primaryKey(),
+  chatId: integer("chat_id").references(() => imageStudioChats.id, { onDelete: "set null" }),
+  prompt: text("prompt").notNull(),
+  type: text("type").notNull().default("image"),
+  aspectRatio: text("aspect_ratio").notNull().default("1:1"),
+  n: integer("n").notNull().default(1),
+  urls: jsonb("urls").notNull().default([]),
+  creditsUsed: real("credits_used").default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("image_studio_results_created_at_idx").on(table.createdAt),
+  index("image_studio_results_chat_idx").on(table.chatId),
+]);
+
 export const proxyPool = pgTable("proxy_pool", {
   id: serial("id").primaryKey(),
   url: text("url").notNull(),
@@ -134,3 +162,7 @@ export type VccCard = typeof vccCards.$inferSelect;
 export type NewVccCard = typeof vccCards.$inferInsert;
 export type ProxyPoolEntry = typeof proxyPool.$inferSelect;
 export type NewProxyPoolEntry = typeof proxyPool.$inferInsert;
+export type ImageStudioChat = typeof imageStudioChats.$inferSelect;
+export type NewImageStudioChat = typeof imageStudioChats.$inferInsert;
+export type ImageStudioResult = typeof imageStudioResults.$inferSelect;
+export type NewImageStudioResult = typeof imageStudioResults.$inferInsert;

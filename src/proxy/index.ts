@@ -71,6 +71,29 @@ async function pruneRequestLogs() {
 // Prune every 10 requests to avoid running DELETE on every single insert
 let requestCounter = 0;
 
+export async function recordRequest(entry: NewRequestLog) {
+  try {
+    await db.insert(requestLogs).values(entry);
+    void upsertUsageSummary({
+      provider: entry.provider || "unknown",
+      model: entry.model || "unknown",
+      status: entry.status,
+      promptTokens: entry.promptTokens || 0,
+      completionTokens: entry.completionTokens || 0,
+      totalTokens: entry.totalTokens || 0,
+      creditsUsed: entry.creditsUsed || 0,
+      durationMs: entry.durationMs || 0,
+    });
+    if (++requestCounter % 10 === 0) void pruneRequestLogs();
+    broadcast({
+      type: "request_log",
+      data: { ...entry, email: entry.accountEmail, createdAt: new Date().toISOString() },
+    });
+  } catch (err) {
+    console.error("[Proxy] Failed to record request:", err);
+  }
+}
+
 function normalizeModelId(model: string): string {
   // Common typo seen from clients: "sonet" -> canonical Anthropic "sonnet".
   return model.replace(/claude-sonet/gi, "claude-sonnet");

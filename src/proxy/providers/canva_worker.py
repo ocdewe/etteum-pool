@@ -19,6 +19,20 @@ CANVA_BASE = "https://www.canva.com"
 POLL_INTERVAL = 3  # seconds
 IMPERSONATE = "chrome131"
 
+# Aspect ratio codes for Canva Magic Media (g.A field).
+# Discovered empirically by probing different g.A values.
+ASPECT_RATIOS = {
+    "1:1":   "A",  # 1200x1200 - Square
+    "16:9":  "B",  # 1600x912  - Landscape
+    "5:4":   "C",  # 1344x1088 - Landscape
+    "4:3":   "D",  # 1392x1040 - Landscape
+    "2:1":   "E",  # 1712x864  - Cinematic
+    "9:16":  "F",  # 912x1600  - Portrait
+    "4:5":   "G",  # 1088x1344 - Portrait
+    "3:4":   "H",  # 1040x1392 - Portrait
+}
+DEFAULT_ASPECT = "1:1"
+
 
 def build_session(cookies: dict):
     """Create a curl_cffi session with Chrome TLS impersonation and Canva cookies."""
@@ -65,7 +79,7 @@ def build_headers(cookies: dict) -> dict:
     }
 
 
-def generate_media(cookies: dict, prompt: str, mode: str = "image", timeout: int = 90, count: int = 1) -> dict:
+def generate_media(cookies: dict, prompt: str, mode: str = "image", timeout: int = 90, count: int = 1, aspect: str = DEFAULT_ASPECT) -> dict:
     """Generate image or video via Canva's ingredientgeneration API."""
     session = build_session(cookies)
     headers = build_headers(cookies)
@@ -75,6 +89,7 @@ def generate_media(cookies: dict, prompt: str, mode: str = "image", timeout: int
 
     # Determine media type
     media_type = "MAGIC_MEDIA" if mode == "image" else "MAGIC_MEDIA_VIDEO"
+    aspect_code = ASPECT_RATIOS.get(aspect, ASPECT_RATIOS[DEFAULT_ASPECT])
 
     # Build request body
     # Always use batch mode (A?=O) for images — single mode (A?=F) generates
@@ -85,7 +100,7 @@ def generate_media(cookies: dict, prompt: str, mode: str = "image", timeout: int
             "b": {"A": media_type},
             "A?": "O",
             "f": prompt,
-            "g": {"A?": "A", "A": "A"},
+            "g": {"A?": "A", "A": aspect_code},
             "k": min(count, 4),
             "BB": False,
         }
@@ -246,6 +261,7 @@ def main():
     prompt = input_data.get("prompt", "")
     timeout = input_data.get("timeout", 90)
     count = input_data.get("count", 1)
+    aspect = input_data.get("aspect", DEFAULT_ASPECT)
 
     if mode == "quota":
         result = fetch_quota(cookies)
@@ -253,7 +269,7 @@ def main():
         if not prompt:
             result = {"ok": False, "error": "prompt is required"}
         else:
-            result = generate_media(cookies, prompt, mode, timeout, count)
+            result = generate_media(cookies, prompt, mode, timeout, count, aspect)
     else:
         result = {"ok": False, "error": f"unknown mode: {mode}"}
 
