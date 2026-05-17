@@ -142,6 +142,18 @@ export async function fetchWarmupEvents(limit: number = 300) {
   return fetchApi(`/api/auth/warmup-events?limit=${clampLimit(limit, 300, 1, 1000)}`);
 }
 
+export interface AutoWarmupStatus {
+  running: boolean;
+  intervalMinutes: number;
+  enabledProviders: string[];
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+}
+
+export async function fetchAutoWarmupStatus(): Promise<AutoWarmupStatus> {
+  return fetchApi<AutoWarmupStatus>("/api/auth/warmup-schedule");
+}
+
 export async function fetchRequests(page: number = 1, limit: number = 50, provider?: string) {
   const safeLimit = clampLimit(limit, 50, 1, 500);
   const safePage = clampLimit(page, 1, 1, 1000);

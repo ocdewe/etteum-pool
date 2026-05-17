@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { loginQueue } from "./queue";
 import { warmupQueue } from "./warmup-queue";
+import { autoWarmupScheduler } from "./warmup-scheduler";
 import { loginAllProviders, stopLoginProcess, getActiveProcessIds } from "./runner";
 import { db } from "../db/index";
 import { accounts } from "../db/schema";
@@ -121,15 +122,15 @@ authRouter.post("/bulk-add", async (c) => {
     return c.json({ error: "accounts array is required" }, 400);
   }
 
-  const providers = body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw"];
+  const providers = body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"];
 
   // Validate providers
   const validProviders = providers.filter((p) =>
-    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw"].includes(p)
+    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"].includes(p)
   );
 
   if (validProviders.length === 0) {
-    return c.json({ error: "At least one valid provider is required (kiro, codebuddy, canva, zai, windsurf)" }, 400);
+    return c.json({ error: "At least one valid provider is required (kiro, codebuddy, canva, zai, windsurf, moclaw, codex)" }, 400);
   }
 
   const items = body.accounts.map((a) => ({
@@ -169,8 +170,8 @@ authRouter.post("/import", async (c) => {
     return c.json({ error: "text field is required" }, 400);
   }
 
-  const providers = (body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw"]).filter((p) =>
-    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw"].includes(p)
+  const providers = (body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"]).filter((p) =>
+    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"].includes(p)
   );
 
   const lines = body.text.trim().split("\n");
@@ -341,4 +342,11 @@ authRouter.put("/warmup-queue/concurrency", async (c) => {
   }
   warmupQueue.setConcurrency(body.concurrency);
   return c.json({ message: `WarmUp concurrency set to ${body.concurrency}` });
+});
+
+/**
+ * GET /api/auth/warmup-schedule - Get auto-warmup scheduler status (interval, enabled providers, next run)
+ */
+authRouter.get("/warmup-schedule", (c) => {
+  return c.json(autoWarmupScheduler.getStatus());
 });

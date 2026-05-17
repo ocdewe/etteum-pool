@@ -11,20 +11,25 @@ import {
   DialogTitle as DTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Plus, Upload, RefreshCw, Play, RotateCcw } from "lucide-react";
+import { Plus, Upload, RefreshCw, Play, RotateCcw, Flame } from "lucide-react";
 import {
   createAccount,
   fetchAccounts,
   fetchApi,
   fetchAuthQueue,
+  fetchAutoWarmupStatus,
+  fetchSettings,
   fetchWarmupQueue,
+  getWsBase,
   importAccounts,
   loginAccounts,
   loginAllAccounts,
+  updateSettings,
   warmupAllAccounts,
+  type AutoWarmupStatus,
 } from "@/lib/api";
 
-type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw";
+type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex";
 
 interface Account {
   id: number;
@@ -35,13 +40,14 @@ interface Account {
   quotaRemaining?: number;
 }
 
-const providers: Provider[] = ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw"];
+const providers: Provider[] = ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw", "codex"];
 
 function labelProvider(provider: string) {
   if (provider === "kiro-pro") return "Kiro Pro";
   if (provider === "codebuddy") return "CodeBuddy";
   if (provider === "zai") return "Z.ai";
   if (provider === "moclaw") return "Moclaw";
+  if (provider === "codex") return "Codex";
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
@@ -53,6 +59,9 @@ export default function Accounts() {
   const [error, setError] = useState<string | null>(null);
   const [queue, setQueue] = useState<any>(null);
   const [warmupQueue, setWarmupQueue] = useState<any>(null);
+  const [autoWarmup, setAutoWarmup] = useState<AutoWarmupStatus | null>(null);
+  const [settingsMap, setSettingsMap] = useState<Record<string, string>>({});
+  const [now, setNow] = useState<number>(Date.now());
 
   const [addForm, setAddForm] = useState({ email: "", password: "", provider: "kiro" as Provider, browserEngine: "camoufox", headless: false });
   const [addDialogProvider, setAddDialogProvider] = useState<Provider | null>(null);
@@ -69,14 +78,18 @@ export default function Accounts() {
     loadingRef.current = true;
     setLoading(true);
     try {
-      const [accountsRes, queueRes, warmupQueueRes] = await Promise.all([
+      const [accountsRes, queueRes, warmupQueueRes, autoWarmupRes, settingsRes] = await Promise.all([
         fetchAccounts() as Promise<{ data: Account[] }>,
         fetchAuthQueue().catch(() => null),
         fetchWarmupQueue().catch(() => null),
+        fetchAutoWarmupStatus().catch(() => null),
+        fetchSettings().catch(() => null) as Promise<{ data: Record<string, string> } | null>,
       ]);
       setAccounts(accountsRes.data || []);
       setQueue(queueRes);
       setWarmupQueue(warmupQueueRes);
+      setAutoWarmup(autoWarmupRes);
+      setSettingsMap(settingsRes?.data || {});
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -98,6 +111,84 @@ export default function Accounts() {
     const interval = setInterval(() => load(), 2000);
     return () => clearInterval(interval);
   }, [warmupQueue?.active, queue?.active]);
+
+  useEffect(() => {
+    if (!autoWarmup?.nextRunAt) return;
+    const targetMs = new Date(autoWarmup.nextRunAt).getTime();
+    let refetched = false;
+    const tick = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (!refetched && current >= targetMs) {
+        refetched = true;
+        setTimeout(() => {
+          fetchAutoWarmupStatus().then(setAutoWarmup).catch(() => {});
+          load();
+        }, 1500);
+      }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [autoWarmup?.nextRunAt]);
+
+  useEffect(() => {
+    const ws = new WebSocket(`${getWsBase()}/ws`);
+    let loadTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLoad = () => {
+      if (loadTimer) clearTimeout(loadTimer);
+      loadTimer = setTimeout(() => load(), 800);
+    };
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "auto_warmup_status") {
+          setAutoWarmup(msg.data);
+          return;
+        }
+        if (
+          msg.type === "warmup_complete" ||
+          msg.type === "warmup_success" ||
+          msg.type === "warmup_exhausted" ||
+          msg.type === "warmup_auth_error" ||
+          msg.type === "warmup_transient_error" ||
+          msg.type === "account_status"
+        ) {
+          scheduleLoad();
+        }
+      } catch {}
+    };
+    return () => {
+      if (loadTimer) clearTimeout(loadTimer);
+      ws.close();
+    };
+  }, []);
+
+  async function handleToggleAutoWarmup(provider: Provider) {
+    const key = `auto_warmup_provider_${provider}`;
+    const next = settingsMap[key] === "true" ? "false" : "true";
+    setSettingsMap((current) => ({ ...current, [key]: next }));
+    try {
+      await updateSettings({ [key]: next });
+      const status = await fetchAutoWarmupStatus();
+      setAutoWarmup(status);
+      showSuccess(`Auto WarmUp ${next === "true" ? "enabled" : "disabled"} for ${labelProvider(provider)}`);
+    } catch (err) {
+      setSettingsMap((current) => ({ ...current, [key]: next === "true" ? "false" : "true" }));
+      showError(err);
+    }
+  }
+
+  function autoWarmupEnabledFor(provider: Provider): boolean {
+    return settingsMap[`auto_warmup_provider_${provider}`] === "true";
+  }
+
+  function countdownLabel(): string {
+    if (!autoWarmup?.nextRunAt) return "—";
+    const remaining = Math.max(0, new Date(autoWarmup.nextRunAt).getTime() - now);
+    const totalSeconds = Math.floor(remaining / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  }
 
   function showSuccess(text: string) {
     setMessage(text);
@@ -128,7 +219,7 @@ export default function Accounts() {
     try {
       const res = await fetchApi<{ success: number; failed: number; errors?: string[] }>("/api/accounts/instant-login", {
         method: "POST",
-        body: JSON.stringify({ tokens }),
+        body: JSON.stringify({ tokens, provider: addDialogProvider }),
       });
       showSuccess(`Instant login: ${res.success} success, ${res.failed} failed`);
       setInstantTokens("");
@@ -253,6 +344,40 @@ export default function Accounts() {
                 </div>
               </div>
 
+              {/* Auto WarmUp toggle + countdown */}
+              <div
+                className="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--secondary)]/40 p-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Flame className={`h-4 w-4 shrink-0 ${autoWarmupEnabledFor(stat.provider) ? "text-orange-400" : "text-[var(--muted-foreground)]"}`} />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-[var(--foreground)] leading-tight">Auto WarmUp</p>
+                    <p className="text-[10px] text-[var(--muted-foreground)] leading-tight">
+                      {autoWarmupEnabledFor(stat.provider)
+                        ? autoWarmup?.nextRunAt
+                          ? `Next in ${countdownLabel()} · every ${autoWarmup.intervalMinutes}m`
+                          : `Every ${autoWarmup?.intervalMinutes ?? 15}m`
+                        : "Disabled"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleAutoWarmup(stat.provider)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                    autoWarmupEnabledFor(stat.provider) ? "bg-[var(--primary)]" : "bg-[var(--border)]"
+                  }`}
+                  aria-label={`Toggle auto warmup for ${labelProvider(stat.provider)}`}
+                >
+                  <span
+                    className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                      autoWarmupEnabledFor(stat.provider) ? "translate-x-5" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+
               {/* Buttons */}
               <div className="grid grid-cols-3 gap-2" onClick={(e) => e.stopPropagation()}>
                 <Button className="w-full" variant="default" size="sm" onClick={() => setAddDialogProvider(stat.provider)}>
@@ -276,14 +401,14 @@ export default function Accounts() {
           <DialogHeader>
             <DTitle>Add {addDialogProvider ? labelProvider(addDialogProvider) : ""} Account</DTitle>
             <DialogDescription>
-              {addDialogProvider === "kiro-pro"
+              {addDialogProvider === "kiro-pro" || addDialogProvider === "codex"
                 ? "Add via browser login or instant login with refresh token."
                 : `Add account for ${addDialogProvider ? labelProvider(addDialogProvider) : "this provider"}.`}
             </DialogDescription>
           </DialogHeader>
 
           {/* Mode tabs */}
-          {addDialogProvider === "kiro-pro" ? (
+          {addDialogProvider === "kiro-pro" || addDialogProvider === "codex" ? (
             <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
               <button onClick={() => setAddMode("instant")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "instant" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
@@ -307,7 +432,7 @@ export default function Accounts() {
           )}
 
           {/* Instant Login mode (Kiro Pro only) */}
-          {addMode === "instant" && addDialogProvider === "kiro-pro" && (
+          {addMode === "instant" && (addDialogProvider === "kiro-pro" || addDialogProvider === "codex") && (
             <div className="space-y-4">
               <div>
                 <label className="text-sm text-[var(--foreground)]">Refresh Tokens (satu per baris)</label>

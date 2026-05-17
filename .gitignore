@@ -22,6 +22,8 @@ coverage
 logs
 _.log
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+.poolprox.log
+.poolprox.pid
 
 # dotenv environment variable files
 .env

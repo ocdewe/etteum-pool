@@ -4,6 +4,7 @@ import { settings } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { config } from "../config";
 import { pool } from "../proxy/pool";
+import { autoWarmupScheduler, isAutoWarmupSettingKey } from "../auth/warmup-scheduler";
 
 export const proxySettingsRouter = new Hono();
 
@@ -73,6 +74,10 @@ proxySettingsRouter.put("/:key", async (c) => {
     pool.invalidateLoadBalancingCache();
   }
 
+  if (isAutoWarmupSettingKey(key)) {
+    void autoWarmupScheduler.reload();
+  }
+
   return c.json({ key, value: body.value });
 });
 
@@ -100,6 +105,7 @@ proxySettingsRouter.put("/", async (c) => {
   const body = await c.req.json<Record<string, string>>();
 
   let lbCacheTouched = false;
+  let warmupTouched = false;
   for (const [key, value] of Object.entries(body)) {
     const existing = await db
       .select()
@@ -118,9 +124,13 @@ proxySettingsRouter.put("/", async (c) => {
     if (key === "load_balancing_method" || /^provider_.+_lb_method$/.test(key)) {
       lbCacheTouched = true;
     }
+    if (isAutoWarmupSettingKey(key)) {
+      warmupTouched = true;
+    }
   }
 
   if (lbCacheTouched) pool.invalidateLoadBalancingCache();
+  if (warmupTouched) void autoWarmupScheduler.reload();
 
   return c.json({ success: true, updated: Object.keys(body).length });
 });

@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Save, RefreshCw, Server, Zap, Activity, CreditCard } from "lucide-react";
+import { Save, RefreshCw, Server, Zap, Activity, CreditCard, Flame } from "lucide-react";
 import {
   fetchSettings,
   updateSettings,
   fetchProviderList,
   fetchProviders,
+  fetchAutoWarmupStatus,
+  type AutoWarmupStatus,
 } from "@/lib/api";
 import { useApi } from "@/hooks/useApi";
 import { useTimedMessage } from "@/hooks/useTimedMessage";
@@ -47,7 +49,9 @@ export default function Settings() {
     rate_limit_per_minute: "60",
     log_level: "info",
     load_balancing_method: "round_robin",
+    auto_warmup_interval_minutes: "15",
   });
+  const [warmupStatus, setWarmupStatus] = useState<AutoWarmupStatus | null>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -72,6 +76,7 @@ export default function Settings() {
     const res = (await fetchSettings()) as { data: Record<string, string> };
     setForm((current) => ({ ...current, ...(res.data || {}) }));
     setDirty(false);
+    fetchAutoWarmupStatus().then(setWarmupStatus).catch(() => {});
   }
 
   useEffect(() => {
@@ -290,6 +295,58 @@ export default function Settings() {
                   })}
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-[var(--border)]">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Flame className="w-4 h-4 text-[var(--primary)]" />
+                Auto WarmUp
+              </CardTitle>
+              <CardDescription>
+                Automatically warm up enabled providers on a recurring interval. Toggle per provider on the Accounts page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-[var(--foreground)]">Interval (minutes)</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={form.auto_warmup_interval_minutes || ""}
+                    onChange={(e) => setValue("auto_warmup_interval_minutes", e.target.value)}
+                    placeholder="15"
+                    className="mt-1"
+                  />
+                  <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                    Global interval. Applies to every provider with Auto WarmUp enabled.
+                  </p>
+                </div>
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40 p-3 space-y-1.5">
+                  <p className="text-xs text-[var(--muted-foreground)]">Status</p>
+                  <p className="text-sm font-medium text-[var(--foreground)]">
+                    {warmupStatus && warmupStatus.enabledProviders.length > 0
+                      ? `${warmupStatus.enabledProviders.length} provider${warmupStatus.enabledProviders.length === 1 ? "" : "s"} enabled`
+                      : "No provider enabled"}
+                  </p>
+                  {warmupStatus?.enabledProviders && warmupStatus.enabledProviders.length > 0 && (
+                    <p className="text-xs text-[var(--muted-foreground)] truncate">
+                      {warmupStatus.enabledProviders.map(labelFor).join(", ")}
+                    </p>
+                  )}
+                  {warmupStatus?.nextRunAt && (
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      Next run: {new Date(warmupStatus.nextRunAt).toLocaleTimeString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Auto WarmUp checks accounts with status active, exhausted, or error (skips pending). Use the Accounts page to enable/disable per provider.
+              </p>
             </CardContent>
           </Card>
 

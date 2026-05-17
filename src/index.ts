@@ -8,9 +8,13 @@ import { authRouter } from "./auth/index";
 import { proxyRouter } from "./proxy/index";
 import { websocketHandler, getClientCount } from "./ws/index";
 import { isValidApiKey } from "./api/keys";
+import { autoWarmupScheduler } from "./auth/warmup-scheduler";
 
 // Run database migrations on startup
 await runMigrations();
+
+// Start auto-warmup scheduler (reads settings from DB)
+await autoWarmupScheduler.start();
 
 // Create Hono app
 const app = new Hono();
