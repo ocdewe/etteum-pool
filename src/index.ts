@@ -48,8 +48,8 @@ app.use("/v1/*", async (c, next) => {
 
 // API Key authentication for management API
 app.use("/api/*", async (c, next) => {
-  // Allow health check without auth
-  if (c.req.path === "/api/health") {
+  // Allow health check, info, and key validation without auth
+  if (c.req.path === "/api/health" || c.req.path === "/api/info" || c.req.path === "/api/keys/test") {
     await next();
     return;
   }
@@ -73,8 +73,8 @@ app.route("/", proxyRouter); // /v1/chat/completions, /v1/models
 app.route("/api", apiRouter); // /api/accounts, /api/settings, /api/stats
 app.route("/api/auth", authRouter); // /api/auth/login, /api/auth/queue
 
-// Root endpoint
-app.get("/", (c) => {
+// Health/info endpoint (moved from / to /api/health)
+app.get("/api/info", (c) => {
   return c.json({
     name: "pool-proxy",
     version: "1.0.0",
@@ -94,11 +94,29 @@ app.get("/", (c) => {
   });
 });
 
+// Serve dashboard static files (SPA fallback)
+const dashboardDist = new URL("../dashboard/dist", import.meta.url).pathname;
+const dashboardIndex = `${dashboardDist}/index.html`;
+
+const staticMimeTypes: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+};
+
 // Start server with WebSocket support
 const server = Bun.serve({
   port: config.port,
   idleTimeout: 255,
-  fetch(req, server) {
+  async fetch(req, server) {
     // Handle WebSocket upgrade
     const url = new URL(req.url);
     if (url.pathname === "/ws") {
@@ -107,8 +125,30 @@ const server = Bun.serve({
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
 
-    // Handle Hono routes
-    return app.fetch(req, { ip: server.requestIP(req) });
+    // Try Hono routes first (API, proxy, etc.)
+    const response = await app.fetch(req, { ip: server.requestIP(req) });
+    if (response.status !== 404) return response;
+
+    // Fallback: serve dashboard static files
+    const pathname = url.pathname;
+    const filePath = `${dashboardDist}${pathname}`;
+    const file = Bun.file(filePath);
+    if (await file.exists()) {
+      const ext = pathname.slice(pathname.lastIndexOf("."));
+      return new Response(file, {
+        headers: { "Content-Type": staticMimeTypes[ext] || "application/octet-stream" },
+      });
+    }
+
+    // SPA fallback: serve index.html for non-file routes
+    const indexFile = Bun.file(dashboardIndex);
+    if (await indexFile.exists()) {
+      return new Response(indexFile, {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    return new Response("Not Found", { status: 404 });
   },
   websocket: websocketHandler,
 });

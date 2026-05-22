@@ -801,6 +801,7 @@ export class KiroProvider extends BaseProvider {
         let buffer: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
         const toolIndexes = new Map<string, number>();
         const toolBuffers = new Map<string, string>();
+        const toolInputObjects = new Map<string, Record<string, unknown>>();
         let nextToolIndex = 0;
         const allEvents: Array<{ headers: Record<string, string>; payload: any }> = [];
         let streamedContentLength = 0;
@@ -842,9 +843,23 @@ export class KiroProvider extends BaseProvider {
                 } else {
                   if (isFirstChunk) toolIndexes.set(tool.toolUseId, nextToolIndex++);
                   const toolIdx = toolIndexes.get(tool.toolUseId)!;
-                  const args = typeof tool.input === "string" ? tool.input : tool.input && Object.keys(tool.input).length > 0 ? JSON.stringify(tool.input) : "";
+
+                  // Kiro sends tool.input as either a string fragment or a full object.
+                  // For objects: accumulate into toolInputObjects and only stringify on stop.
+                  // For strings: accumulate as raw string fragments (OpenAI streaming style).
+                  let args = "";
+                  if (typeof tool.input === "string") {
+                    args = tool.input;
+                  } else if (tool.input && typeof tool.input === "object" && Object.keys(tool.input).length > 0) {
+                    // Merge object into accumulated input for this tool
+                    const prev = toolInputObjects.get(tool.toolUseId) || {};
+                    const merged = { ...prev, ...tool.input };
+                    toolInputObjects.set(tool.toolUseId, merged);
+                    // Don't stream partial object args — wait for stop event
+                    args = "";
+                  }
+
                   if (isFirstChunk) {
-                    // First chunk: include id, type, and function name
                     toolBuffers.set(tool.toolUseId, args);
                     enqueue({
                       tool_calls: [{
@@ -855,7 +870,6 @@ export class KiroProvider extends BaseProvider {
                       }],
                     });
                   } else if (args) {
-                    // Subsequent chunks: only index and arguments delta
                     toolBuffers.set(tool.toolUseId, (toolBuffers.get(tool.toolUseId) || "") + args);
                     enqueue({
                       tool_calls: [{
@@ -864,17 +878,33 @@ export class KiroProvider extends BaseProvider {
                       }],
                     });
                   }
+
                   if (tool.stop === true) {
-                    const buffered = toolBuffers.get(tool.toolUseId) || "";
-                    if (buffered && !this.isCompleteJson(buffered)) {
-                      const suffix = this.completeJsonSuffix(buffered);
-                      if (suffix) {
-                        enqueue({
-                          tool_calls: [{
-                            index: toolIdx,
-                            function: { arguments: suffix },
-                          }],
-                        });
+                    // If we accumulated object input, emit the full JSON now
+                    const accumulatedObj = toolInputObjects.get(tool.toolUseId);
+                    if (accumulatedObj && Object.keys(accumulatedObj).length > 0) {
+                      const fullArgs = JSON.stringify(accumulatedObj);
+                      const prevBuffer = toolBuffers.get(tool.toolUseId) || "";
+                      toolBuffers.set(tool.toolUseId, prevBuffer + fullArgs);
+                      enqueue({
+                        tool_calls: [{
+                          index: toolIdx,
+                          function: { arguments: fullArgs },
+                        }],
+                      });
+                    } else {
+                      // String-mode: check if JSON is complete
+                      const buffered = toolBuffers.get(tool.toolUseId) || "";
+                      if (buffered && !this.isCompleteJson(buffered)) {
+                        const suffix = this.completeJsonSuffix(buffered);
+                        if (suffix) {
+                          enqueue({
+                            tool_calls: [{
+                              index: toolIdx,
+                              function: { arguments: suffix },
+                            }],
+                          });
+                        }
                       }
                     }
                   }
@@ -882,6 +912,24 @@ export class KiroProvider extends BaseProvider {
               }
             }
           }
+          // Flush any accumulated object inputs that never received tool.stop
+          for (const [toolId, objInput] of toolInputObjects.entries()) {
+            if (Object.keys(objInput).length === 0) continue;
+            const prevBuffer = toolBuffers.get(toolId) || "";
+            // Only emit if we haven't already flushed (check if buffer already has valid JSON)
+            if (prevBuffer && this.isCompleteJson(prevBuffer)) continue;
+            const toolIdx = toolIndexes.get(toolId);
+            if (toolIdx === undefined) continue;
+            const fullArgs = JSON.stringify(objInput);
+            toolBuffers.set(toolId, prevBuffer + fullArgs);
+            enqueue({
+              tool_calls: [{
+                index: toolIdx,
+                function: { arguments: fullArgs },
+              }],
+            });
+          }
+
           // Extract real usage from Kiro's contextUsageEvent and meteringEvent
           const totalTokens = this.extractKiroContextTokens(allEvents, model);
           const creditsUsed = extractCreditsRef(allEvents);
@@ -973,23 +1021,37 @@ export class KiroProvider extends BaseProvider {
 
   private extractKiroToolCalls(events: Array<{ headers: Record<string, string>; payload: any }>): any[] {
     const calls = new Map<string, { id: string; name: string; arguments: string }>();
+    const objectInputs = new Map<string, Record<string, unknown>>();
     for (const event of events) {
       const payload = this.unwrapKiroEvent(event.payload, event.headers[":event-type"]);
       const tool = payload?.toolUseEvent || payload;
       if (!tool || typeof tool !== "object") continue;
       const id = tool.toolUseId || tool.id;
+      if (!id) continue;
       const name = tool.name;
-      if (!id || !name) continue;
-      const existing = calls.get(id) || { id, name, arguments: "" };
-      if (typeof tool.input === "string") existing.arguments += tool.input;
-      else if (tool.input && typeof tool.input === "object") existing.arguments += JSON.stringify(tool.input);
+      // First event must have a name; subsequent events for same ID can omit it
+      if (!name && !calls.has(id)) continue;
+      const existing = calls.get(id) || { id, name: name || "", arguments: "" };
+      if (name && !existing.name) existing.name = name;
+      if (typeof tool.input === "string") {
+        existing.arguments += tool.input;
+      } else if (tool.input && typeof tool.input === "object") {
+        const prev = objectInputs.get(id) || {};
+        objectInputs.set(id, { ...prev, ...tool.input });
+      }
       calls.set(id, existing);
     }
-    return [...calls.values()].map((call) => ({
-      id: call.id,
-      type: "function",
-      function: { name: call.name, arguments: call.arguments || "{}" },
-    }));
+    return [...calls.values()].map((call) => {
+      const objInput = objectInputs.get(call.id);
+      const args = objInput && Object.keys(objInput).length > 0
+        ? JSON.stringify(objInput)
+        : call.arguments || "{}";
+      return {
+        id: call.id,
+        type: "function",
+        function: { name: call.name, arguments: args },
+      };
+    });
   }
 
   private unwrapKiroEvent(payload: any, eventType?: string): any {

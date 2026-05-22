@@ -1,6 +1,8 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import Layout from "./components/layout/Layout";
+import Login from "./pages/Login";
+import { isAuthenticated, validateApiKey, logout } from "./lib/api";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Accounts = lazy(() => import("./pages/Accounts"));
@@ -20,10 +22,47 @@ function RouteFallback() {
 }
 
 export default function App() {
+  const [authed, setAuthed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    async function check() {
+      if (!isAuthenticated()) {
+        setAuthed(false);
+        return;
+      }
+      const key = localStorage.getItem("api_key")!;
+      const valid = await validateApiKey(key);
+      if (!valid) {
+        logout();
+        setAuthed(false);
+      } else {
+        setAuthed(true);
+      }
+    }
+    check();
+  }, []);
+
+  function handleLogin() {
+    setAuthed(true);
+  }
+
+  function handleLogout() {
+    logout();
+    setAuthed(false);
+  }
+
+  if (authed === null) {
+    return <div className="flex h-screen items-center justify-center text-sm text-[var(--muted-foreground)]">Loading...</div>;
+  }
+
+  if (!authed) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
-        <Route element={<Layout />}>
+        <Route element={<Layout onLogout={handleLogout} />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/accounts" element={<Accounts />} />
           <Route path="/accounts/:provider" element={<AccountList />} />

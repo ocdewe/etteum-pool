@@ -44,8 +44,8 @@ authRouter.post("/login/:id", async (c) => {
  * POST /api/auth/login-all - Login all pending accounts
  */
 authRouter.post("/login-all", async (c) => {
-  const body = await c.req.json<{ headless?: boolean }>().catch(emptyLoginOptions);
-  const count = await loginQueue.queueAllPending({ headless: body.headless });
+  const body = await c.req.json<{ headless?: boolean; concurrency?: number }>().catch(emptyLoginOptions);
+  const count = await loginQueue.queueAllPending({ headless: body.headless, concurrency: body.concurrency });
   return c.json({ message: `Queued ${count} accounts for login`, count });
 });
 
@@ -122,15 +122,15 @@ authRouter.post("/bulk-add", async (c) => {
     return c.json({ error: "accounts array is required" }, 400);
   }
 
-  const providers = body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"];
+  const providers = body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"];
 
   // Validate providers
   const validProviders = providers.filter((p) =>
-    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"].includes(p)
+    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"].includes(p)
   );
 
   if (validProviders.length === 0) {
-    return c.json({ error: "At least one valid provider is required (kiro, codebuddy, canva, zai, windsurf, moclaw, codex)" }, 400);
+    return c.json({ error: "At least one valid provider is required (kiro, codebuddy, canva, zai, windsurf, moclaw, codex, pioneer)" }, 400);
   }
 
   const items = body.accounts.map((a) => ({
@@ -170,8 +170,8 @@ authRouter.post("/import", async (c) => {
     return c.json({ error: "text field is required" }, 400);
   }
 
-  const providers = (body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"]).filter((p) =>
-    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"].includes(p)
+  const providers = (body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"]).filter((p) =>
+    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"].includes(p)
   );
 
   const lines = body.text.trim().split("\n");

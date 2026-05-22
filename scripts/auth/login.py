@@ -18,7 +18,9 @@ from app.providers.zai import ZaiProviderAdapter
 from app.providers.windsurf import WindsurfProviderAdapter
 from app.providers.moclaw import MoclawProviderAdapter
 from app.providers.codex import CodexProviderAdapter
+from app.providers.pioneer import PioneerProviderAdapter
 from app.providers.base import NormalizedAccount
+from app.errors.codes import ErrorCode
 from app.errors.exceptions import BatcherError, RetryableBatcherError
 
 MAX_RETRIES = 3
@@ -165,6 +167,15 @@ async def _run_provider_once(adapter, account: NormalizedAccount) -> dict:
             result["upgrade"] = upgrade_result
             if upgrade_result.get("quota"):
                 result["quota"] = upgrade_result["quota"]
+
+        if provider_name == "pioneer" and upgrade_result is not None and "payment_added" in upgrade_result:
+            if not upgrade_result["payment_added"]:
+                result["success"] = False
+                result["error"] = (
+                    upgrade_result.get("payment_error")
+                    or upgrade_result.get("payment_message")
+                    or "payment method not added"
+                )
         return result
     finally:
         if session is not None:
@@ -337,17 +348,18 @@ async def main(email: str, password: str):
             "moclaw": (MoclawProviderAdapter(), NormalizedAccount(provider="moclaw", identifier=email, secret=password)),
             "kiro-pro": (KiroProProviderAdapter(), NormalizedAccount(provider="kiro-pro", identifier=email, secret=password)),
             "codex": (CodexProviderAdapter(), NormalizedAccount(provider="codex", identifier=email, secret=password)),
+            "pioneer": (PioneerProviderAdapter(), NormalizedAccount(provider="pioneer", identifier=email, secret=password)),
         }
         tasks = []
         task_names = []
-        for name in ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"]:
+        for name in ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"]:
             if name in allowed_providers:
                 adapter, account = provider_specs[name]
                 tasks.append(run_provider(adapter, account))
                 task_names.append(name)
         results = await asyncio.gather(*tasks, return_exceptions=True)
         result = {"type": "result"}
-        for name in ["kiro", "kiro-pro", "codebuddy", "wavespeed", "canva", "yepapi", "zai", "windsurf", "moclaw", "codex"]:
+        for name in ["kiro", "kiro-pro", "codebuddy", "wavespeed", "canva", "yepapi", "zai", "windsurf", "moclaw", "codex", "pioneer"]:
             result[name] = {"success": False, "provider": name, "error": "skipped"}
         for name, provider_result in zip(task_names, results):
             if isinstance(provider_result, BaseException):

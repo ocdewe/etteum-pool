@@ -64,7 +64,9 @@ class LoginQueue {
   /**
    * Queue all pending accounts for login
    */
-  async queueAllPending(options: { headless?: boolean; browserEngine?: string } = {}): Promise<number> {
+  async queueAllPending(options: { headless?: boolean; browserEngine?: string; concurrency?: number } = {}): Promise<number> {
+    if (options.concurrency !== undefined) this.setConcurrency(options.concurrency);
+
     const pendingAccounts = await db
       .select()
       .from(accounts)
@@ -88,7 +90,7 @@ class LoginQueue {
 
     for (const item of items) {
       for (const provider of item.providers) {
-        if (!["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw"].includes(provider)) continue;
+        if (!["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"].includes(provider)) continue;
 
         try {
           const [newAccount] = await db

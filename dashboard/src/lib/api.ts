@@ -1,15 +1,52 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || `http://${window.location.hostname}:${import.meta.env.VITE_BACKEND_PORT || (Number(window.location.port) - 1) || "1630"}`;
+function resolveApiBase(): string {
+  if (import.meta.env.VITE_API_BASE) return import.meta.env.VITE_API_BASE;
+  const port = window.location.port;
+  if (!port || port === "443" || port === "80") {
+    return window.location.origin;
+  }
+  const backendPort = import.meta.env.VITE_BACKEND_PORT || (Number(port) - 1) || "1630";
+  return `http://${window.location.hostname}:${backendPort}`;
+}
+
+export const API_BASE = resolveApiBase();
 
 export function getWsBase(): string {
   const configured = import.meta.env.VITE_WS_BASE;
   if (configured) return configured;
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const backendPort = import.meta.env.VITE_BACKEND_PORT || (Number(window.location.port) - 1) || "1630";
+  const port = window.location.port;
+  if (!port || port === "443" || port === "80") {
+    return `${protocol}://${window.location.hostname}`;
+  }
+  const backendPort = import.meta.env.VITE_BACKEND_PORT || (Number(port) - 1) || "1630";
   return `${protocol}://${window.location.hostname}:${backendPort}`;
 }
 
 function getApiKey(): string {
   return localStorage.getItem("api_key") || "pool-proxy-secret-key";
+}
+
+export async function validateApiKey(key: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/keys/test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.valid === true;
+  } catch {
+    return false;
+  }
+}
+
+export function isAuthenticated(): boolean {
+  return !!localStorage.getItem("api_key");
+}
+
+export function logout() {
+  localStorage.removeItem("api_key");
 }
 
 type FetchApiOptions = RequestInit & { timeoutMs?: number };
@@ -217,7 +254,7 @@ export async function loginAccounts(accountIds: number[], options?: { headless?:
   });
 }
 
-export async function loginAllAccounts(options?: { headless?: boolean }) {
+export async function loginAllAccounts(options?: { headless?: boolean; concurrency?: number }) {
   return fetchApi("/api/auth/login-all", {
     method: "POST",
     body: JSON.stringify(options || {}),

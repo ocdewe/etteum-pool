@@ -1,4 +1,5 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+import { useEffect } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -12,6 +13,8 @@ import {
   CreditCard,
   Globe,
   Sparkles,
+  LogOut,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -60,11 +63,28 @@ const navSections: NavSection[] = [
   },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  onLogout?: () => void;
+  open?: boolean;
+  onClose?: () => void;
+}
+
+export default function Sidebar({ onLogout, open, onClose }: SidebarProps) {
+  const location = useLocation();
+
+  useEffect(() => {
+    onClose?.();
+  }, [location.pathname]);
+
   return (
-    <aside className="fixed left-0 top-0 h-screen w-[240px] bg-[var(--sidebar-bg)] border-r border-[var(--sidebar-border)] flex flex-col z-50">
+    <aside
+      className={cn(
+        "fixed top-0 left-0 h-screen w-[240px] bg-[var(--sidebar-bg)] border-r border-[var(--sidebar-border)] flex flex-col z-50 transition-transform duration-200",
+        open ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      )}
+    >
       {/* Logo */}
-      <div className="p-6 border-b border-[var(--sidebar-border)]">
+      <div className="p-6 border-b border-[var(--sidebar-border)] flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-[var(--primary)] flex items-center justify-center">
             <span className="text-white font-bold text-sm">P</span>
@@ -74,6 +94,14 @@ export default function Sidebar() {
             <span className="text-xs text-[var(--muted-foreground)]">v1.0.0</span>
           </div>
         </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1 rounded-md text-[var(--muted-foreground)] hover:text-[var(--foreground)] md:hidden"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Navigation */}
@@ -108,8 +136,8 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* Bottom Settings */}
-      <div className="p-3 border-t border-[var(--sidebar-border)]">
+      {/* Bottom Settings & Logout */}
+      <div className="p-3 border-t border-[var(--sidebar-border)] space-y-1">
         <NavLink
           to="/settings"
           className={({ isActive }) =>
@@ -124,6 +152,15 @@ export default function Sidebar() {
           <SettingsIcon className="w-4 h-4" />
           Settings
         </NavLink>
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/10 w-full"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        )}
       </div>
     </aside>
   );

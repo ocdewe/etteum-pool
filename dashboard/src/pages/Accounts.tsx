@@ -29,7 +29,7 @@ import {
   type AutoWarmupStatus,
 } from "@/lib/api";
 
-type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex";
+type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex" | "pioneer";
 
 interface Account {
   id: number;
@@ -40,7 +40,7 @@ interface Account {
   quotaRemaining?: number;
 }
 
-const providers: Provider[] = ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw", "codex"];
+const providers: Provider[] = ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw", "codex", "pioneer"];
 
 function labelProvider(provider: string) {
   if (provider === "kiro-pro") return "Kiro Pro";
@@ -70,6 +70,9 @@ export default function Accounts() {
   const [addMode, setAddMode] = useState<"single" | "bulk" | "instant">("bulk");
   const [bulkBrowserEngine, setBulkBrowserEngine] = useState("camoufox");
   const [bulkHeadless, setBulkHeadless] = useState(true);
+  const [bulkConcurrency, setBulkConcurrency] = useState(3);
+  const [loginPendingDialog, setLoginPendingDialog] = useState(false);
+  const [loginPendingConcurrency, setLoginPendingConcurrency] = useState(2);
   const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingRef = useRef(false);
 
@@ -231,7 +234,7 @@ export default function Accounts() {
   async function handleBulkImport() {
     if (!addDialogProvider || !bulkText.trim()) { showError(new Error("Paste email|password lines")); return; }
     try {
-      const opts: any = { headless: bulkHeadless, browserEngine: bulkBrowserEngine };
+      const opts: any = { headless: bulkHeadless, browserEngine: bulkBrowserEngine, concurrency: bulkConcurrency };
       const res = await importAccounts(bulkText, [addDialogProvider], opts) as any;
       showSuccess(res.message || "Bulk import queued.");
       setBulkText("");
@@ -242,7 +245,17 @@ export default function Accounts() {
   }
 
   async function handleLoginAll() {
-    try { const res = await loginAllAccounts() as any; showSuccess(res.message || "Login all queued."); await load(); navigate("/bot-logs"); } catch (err) { showError(err); }
+    setLoginPendingDialog(true);
+  }
+
+  async function confirmLoginAll() {
+    setLoginPendingDialog(false);
+    try {
+      const res = await loginAllAccounts({ concurrency: loginPendingConcurrency }) as any;
+      showSuccess(res.message || "Login all queued.");
+      await load();
+      navigate("/bot-logs");
+    } catch (err) { showError(err); }
   }
 
   async function handleWarmupProvider(provider: Provider) {
@@ -395,20 +408,46 @@ export default function Accounts() {
         ))}
       </div>
 
+      {/* Login Pending Dialog */}
+      <Dialog open={loginPendingDialog} onOpenChange={setLoginPendingDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DTitle>Login Pending Accounts</DTitle>
+            <DialogDescription>Choose how many accounts to login concurrently.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-[var(--muted-foreground)]">Concurrent:</label>
+              <select value={loginPendingConcurrency} onChange={(e) => setLoginPendingConcurrency(Number(e.target.value))} className="h-8 w-20 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-sm text-[var(--foreground)]">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setLoginPendingDialog(false)}>Cancel</Button>
+              <Button size="sm" onClick={confirmLoginAll}>
+                <Play className="w-4 h-4 mr-2" /> Start Login
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Account Dialog (per-provider) */}
       <Dialog open={addDialogProvider !== null} onOpenChange={(open) => { if (!open) setAddDialogProvider(null); }}>
         <DialogContent>
           <DialogHeader>
             <DTitle>Add {addDialogProvider ? labelProvider(addDialogProvider) : ""} Account</DTitle>
             <DialogDescription>
-              {addDialogProvider === "kiro-pro" || addDialogProvider === "codex"
-                ? "Add via browser login or instant login with refresh token."
+              {addDialogProvider === "kiro-pro" || addDialogProvider === "codex" || addDialogProvider === "pioneer"
+                ? "Add via browser login or instant login with API key/token."
                 : `Add account for ${addDialogProvider ? labelProvider(addDialogProvider) : "this provider"}.`}
             </DialogDescription>
           </DialogHeader>
 
           {/* Mode tabs */}
-          {addDialogProvider === "kiro-pro" || addDialogProvider === "codex" ? (
+          {addDialogProvider === "kiro-pro" || addDialogProvider === "codex" || addDialogProvider === "pioneer" ? (
             <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
               <button onClick={() => setAddMode("instant")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "instant" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
@@ -470,10 +509,22 @@ export default function Accounts() {
                   <option value="chromium">Chromium (Playwright)</option>
                 </select>
               </div>
-              <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
-                <input type="checkbox" checked={bulkHeadless} onChange={(e) => setBulkHeadless(e.target.checked)} className="h-4 w-4 rounded border-[var(--border)]" />
-                Run browser headless
-              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 text-sm text-[var(--foreground)]">
+                  <input type="checkbox" checked={bulkHeadless} onChange={(e) => setBulkHeadless(e.target.checked)} className="h-4 w-4 rounded border-[var(--border)]" />
+                  Run browser headless
+                </label>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-[var(--foreground)]">Concurrent:</label>
+                  <select value={bulkConcurrency} onChange={(e) => setBulkConcurrency(Number(e.target.value))} className="h-8 w-16 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-sm text-[var(--foreground)]">
+                    <option value={1}>1</option>
+                    <option value={2}>2</option>
+                    <option value={3}>3</option>
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                  </select>
+                </div>
+              </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setAddDialogProvider(null)}>Cancel</Button>
                 <Button onClick={handleBulkImport}>Import & Login</Button>

@@ -371,6 +371,32 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
       ? { BATCHER_BROWSER_ENGINE: options.browserEngine || config.browserEngine, ...(await getKiroProUpgradeEnv(account.id)) }
       : {};
 
+    const pioneerEnv = provider === "pioneer"
+      ? await (async () => {
+          let billingAddress = config.billingAddress;
+          if (!process.env.BILLING_ADDRESS) {
+            const keys = ["billing_name", "billing_country", "billing_line1", "billing_city", "billing_state", "billing_postal_code"];
+            const rows = await db.select().from(settings);
+            const map: Record<string, string> = {};
+            for (const r of rows) if (keys.includes(r.key) && r.value) map[r.key] = r.value;
+            if (Object.keys(map).length > 0) {
+              billingAddress = {
+                name: map.billing_name || billingAddress.name,
+                country: map.billing_country || billingAddress.country,
+                line1: map.billing_line1 || billingAddress.line1,
+                city: map.billing_city || billingAddress.city,
+                state: map.billing_state || billingAddress.state,
+                postal_code: map.billing_postal_code || billingAddress.postal_code,
+              };
+            }
+          }
+          return {
+            BATCHER_VCC_POOL: JSON.stringify(await getVccPoolFromDb()),
+            BATCHER_BILLING_ADDRESS: JSON.stringify(billingAddress),
+          };
+        })()
+      : {};
+
     const proxyUrlForAuth = (await getNextProxy())?.url || "";
 
     const proc = Bun.spawn(
@@ -400,6 +426,7 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
           BATCHER_CONCURRENT: "1",
           BATCHER_PRIORITY: provider,
           ...kiroProEnv,
+          ...pioneerEnv,
         },
         cwd: config.authScriptCwd,
       }
@@ -704,7 +731,7 @@ export async function loginAllProviders(
         stderr: "pipe",
         env: {
           ...process.env,
-          ENOWX_ALLOWED_PROVIDERS: "kiro,kiro-pro,codebuddy,canva,zai,windsurf,moclaw,codex",
+          ENOWX_ALLOWED_PROVIDERS: "kiro,kiro-pro,codebuddy,canva,zai,windsurf,moclaw,codex,pioneer",
           BATCHER_ENABLE_CAMOUFOX: "true",
           BATCHER_CAMOUFOX_HEADLESS: config.headless ? "true" : "false",
           BATCHER_PROXY_URL: proxyUrlForAuth || config.proxyUrl || "",
@@ -737,12 +764,13 @@ export async function loginAllProviders(
         windsurf: { success: false, error },
         moclaw: { success: false, error },
         codex: { success: false, error },
+        pioneer: { success: false, error },
       };
     }
 
     const output: Record<string, LoginResult> = {};
 
-    for (const provider of ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex"] as const) {
+    for (const provider of ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"] as const) {
       const pr = result[provider] as ProviderResult | undefined;
       if (!pr || !pr.success) {
         output[provider] = {
@@ -770,6 +798,7 @@ export async function loginAllProviders(
       windsurf: { success: false, error: errorMsg },
       moclaw: { success: false, error: errorMsg },
       codex: { success: false, error: errorMsg },
+      pioneer: { success: false, error: errorMsg },
     };
   }
 }
