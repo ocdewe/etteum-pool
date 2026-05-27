@@ -8,6 +8,7 @@ import { WindsurfProvider } from "./providers/windsurf";
 import { MoclawProvider } from "./providers/moclaw";
 import { CodexProvider } from "./providers/codex";
 import { PioneerProvider } from "./providers/pioneer";
+import { QoderProvider } from "./providers/qoder";
 import { isNonAccountRequestError } from "./errors";
 import { applyPudidilFilters } from "./filters";
 import { pool } from "./pool";
@@ -22,6 +23,7 @@ const windsurfProvider = new WindsurfProvider();
 const moclawProvider = new MoclawProvider();
 const codexProvider = new CodexProvider();
 const pioneerProvider = new PioneerProvider();
+const qoderProvider = new QoderProvider();
 
 const providers = {
   kiro: kiroProvider,
@@ -33,6 +35,7 @@ const providers = {
   moclaw: moclawProvider,
   codex: codexProvider,
   pioneer: pioneerProvider,
+  qoder: qoderProvider,
 } as const;
 
 type ProviderName = keyof typeof providers;
@@ -275,6 +278,7 @@ export function getAllModels() {
     ...moclawProvider.getModels(),
     ...codexProvider.getModels(),
     ...pioneerProvider.getModels(),
+    ...qoderProvider.getModels(),
   ];
 }
 

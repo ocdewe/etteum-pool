@@ -77,6 +77,13 @@ export interface ProviderQuotaSnapshot {
   resetAt?: Date | string | null;
   source: string;
   raw?: unknown;
+  overage?: {
+    enabled: boolean;
+    capable: boolean;
+    used: number;
+    cap: number;
+    remaining: number;
+  };
 }
 
 export interface ProviderHealthResult {

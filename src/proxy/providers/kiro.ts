@@ -254,7 +254,7 @@ export class KiroProvider extends BaseProvider {
         return result;
       }
 
-      if (response.status === 429) {
+      if (response.status === 429 || response.status === 402) {
         return { success: false, error: "Rate limited / quota exhausted", quotaExhausted: true };
       }
 
@@ -302,7 +302,7 @@ export class KiroProvider extends BaseProvider {
         return result;
       }
 
-      if (response.status === 429) {
+      if (response.status === 429 || response.status === 402) {
         return { success: false, error: "Rate limited / quota exhausted", quotaExhausted: true };
       }
 
@@ -428,12 +428,14 @@ export class KiroProvider extends BaseProvider {
 
         const data = await response.json();
         const quota = this.parseUsageLimits(data);
+        const hasOverageBudget = quota.overage?.enabled && quota.overage.remaining > 0;
+        const isExhausted = quota.remaining <= 0 && !hasOverageBudget;
         return {
-          kind: quota.remaining <= 0 ? "exhausted" : "healthy",
+          kind: isExhausted ? "exhausted" : "healthy",
           success: true,
           quota,
           tokens: refreshedTokens || undefined,
-          metadata: { authRefreshed: Boolean(refreshedTokens) },
+          metadata: { authRefreshed: Boolean(refreshedTokens), overageBudget: hasOverageBudget },
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -488,6 +490,15 @@ export class KiroProvider extends BaseProvider {
         totalUsage += Number(bonus?.currentUsage || 0);
       }
       const resetAt = root.nextResetDate || root.next_reset_date || null;
+
+      const overageCfg = root.overageConfiguration || {};
+      const subInfo = root.subscriptionInfo || {};
+      const overageEnabled = String(overageCfg.overageStatus || "").toUpperCase() === "ENABLED";
+      const overageCapable = String(subInfo.overageCapability || "").toUpperCase() === "OVERAGE_CAPABLE";
+      const overageCap = Number(usage.overageCap || usage.overageCapWithPrecision || 0);
+      const overageUsed = Number(usage.currentOverages || usage.currentOveragesWithPrecision || 0);
+      const overageRemaining = Math.max(0, overageCap - overageUsed);
+
       return {
         limit: totalCredits,
         remaining: Math.max(0, totalCredits - totalUsage),
@@ -495,9 +506,16 @@ export class KiroProvider extends BaseProvider {
         resetAt,
         source: "kiro.getUsageLimits",
         raw: {
-          subscriptionType: root.subscriptionType || root.subscription_type,
-          subscriptionTitle: root.subscriptionTitle || root.subscription_title,
+          subscriptionType: root.subscriptionType || root.subscription_type || subInfo.type,
+          subscriptionTitle: root.subscriptionTitle || root.subscription_title || subInfo.subscriptionTitle,
           daysUntilReset: root.daysUntilReset || root.days_until_reset,
+        },
+        overage: {
+          enabled: overageEnabled,
+          capable: overageCapable,
+          used: overageUsed,
+          cap: overageCap,
+          remaining: overageRemaining,
         },
       };
     }

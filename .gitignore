@@ -9,6 +9,13 @@ __pycache__/
 # sensitive data
 scripts/cookies/
 
+# local probe / intercept scripts (reverse-engineering helpers, not part of the proxy)
+scripts/probe-*.ts
+scripts/dump-*.ts
+scripts/qoder-intercept.mjs
+scripts/test-kiro-pro-inference.ts
+test/codex_direct.ts
+
 # output
 out
 dist

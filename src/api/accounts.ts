@@ -9,6 +9,7 @@ import { loginQueue } from "../auth/queue";
 import { warmupQueue } from "../auth/warmup-queue";
 import { warmupAccount } from "../auth/warmup-runner";
 import { pool, type ProviderName } from "../proxy/pool";
+import { activateQoderPat } from "../proxy/providers/qoder";
 
 export const accountsRouter = new Hono();
 
@@ -54,18 +55,66 @@ accountsRouter.get("/:id", async (c) => {
  */
 accountsRouter.post("/", async (c) => {
   const body = await c.req.json<{
-    provider: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex";
-    email: string;
-    password: string;
+    provider: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex" | "pioneer" | "qoder";
+    email?: string;
+    password?: string;
+    personalToken?: string;
     tokens?: Record<string, unknown>;
     status?: "active" | "pending";
     browserEngine?: string;
     headless?: boolean;
   }>();
 
-  if (!body.provider || !body.email || !body.password) {
+  if (!body.provider) {
+    return c.json({ error: "provider is required" }, 400);
+  }
+
+  if (body.provider === "qoder" && body.personalToken) {
+    const trimmed = body.personalToken.trim();
+    if (!trimmed) return c.json({ error: "personalToken is empty" }, 400);
+
+    try {
+      const { tokens, jobToken } = await activateQoderPat(trimmed);
+      const email = jobToken.email || jobToken.name || `qoder-${tokens.userId || Date.now()}@pat`;
+
+      const existing = await db.select().from(accounts)
+        .where(eq(accounts.email, email))
+        .then((rows) => rows.find((r) => r.provider === "qoder"));
+
+      if (existing) {
+        await db.update(accounts).set({
+          status: "active",
+          tokens: tokens as unknown,
+          errorMessage: null,
+          lastLoginAt: new Date(),
+          updatedAt: new Date(),
+        }).where(eq(accounts.id, existing.id));
+        pool.invalidate("qoder");
+        broadcast({ type: "account_updated", data: { id: existing.id, provider: "qoder", status: "active" } });
+        return c.json({ id: existing.id, provider: "qoder", email, status: "active", updated: true }, 200);
+      }
+
+      const inserted = await db.insert(accounts).values({
+        provider: "qoder",
+        email,
+        password: encrypt("pat-login"),
+        status: "active",
+        tokens: tokens as unknown,
+        lastLoginAt: new Date(),
+      }).returning();
+      const created = inserted[0]!;
+      pool.invalidate("qoder");
+      broadcast({ type: "account_created", data: { id: created.id, provider: "qoder", email } });
+      return c.json({ ...created, password: "***", tokens: "[set]" }, 201);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return c.json({ error: `Qoder PAT activation failed: ${msg}` }, 400);
+    }
+  }
+
+  if (!body.email || !body.password) {
     return c.json(
-      { error: "provider, email, and password are required" },
+      { error: "email and password are required" },
       400
     );
   }
@@ -90,8 +139,9 @@ accountsRouter.post("/", async (c) => {
       data: { id: created.id, provider: created.provider, email: created.email },
     });
 
-    // Immediately queue bot login after adding account from dashboard/API.
-    loginQueue.enqueue(created.id, { browserEngine: body.browserEngine, headless: body.headless });
+    if (!body.tokens) {
+      loginQueue.enqueue(created.id, { browserEngine: body.browserEngine, headless: body.headless });
+    }
 
     return c.json(
       { ...created, password: "***", tokens: created.tokens ? "[set]" : null, loginQueued: true },
@@ -569,3 +619,96 @@ async function handleCodexInstantLogin(c: any, tokens: string[]) {
 
   return c.json({ success, failed, errors: errors.length > 0 ? errors : undefined });
 }
+
+/**
+ * POST /api/accounts/:id/open-panel - Open Kiro web panel in browser with auto-login
+ */
+accountsRouter.post("/:id/open-panel", async (c) => {
+  const id = Number(c.req.param("id"));
+  const [account] = await db
+    .select()
+    .from(accounts)
+    .where(eq(accounts.id, id));
+
+  if (!account) {
+    return c.json({ error: "Account not found" }, 404);
+  }
+
+  if (!account.provider.startsWith("kiro")) {
+    return c.json({ error: "Open panel only supported for kiro/kiro-pro accounts" }, 400);
+  }
+
+  const tokens = typeof account.tokens === "string"
+    ? JSON.parse(account.tokens)
+    : account.tokens;
+
+  if (!tokens?.refresh_token) {
+    return c.json({ error: "No refresh token available" }, 400);
+  }
+
+  // Refresh to get fresh access token
+  const refreshResp = await fetch("https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: tokens.refresh_token }),
+  });
+
+  if (!refreshResp.ok) {
+    return c.json({ error: `Token refresh failed: ${refreshResp.status}` }, 500);
+  }
+
+  const refreshData = (await refreshResp.json()) as {
+    accessToken?: string;
+    refreshToken?: string;
+    profileArn?: string;
+  };
+
+  const accessToken = refreshData.accessToken;
+  const refreshToken = refreshData.refreshToken || tokens.refresh_token;
+  const profileArn = tokens.profile_arn || tokens.profileArn || refreshData.profileArn || "";
+
+  // Extract userId from getUsageLimits response (cached in metadata or from profileArn)
+  const meta = (account.metadata || {}) as Record<string, unknown>;
+  let userId = (meta.kiroUserId as string) || "";
+  if (!userId) {
+    // Try to fetch userId from getUsageLimits
+    try {
+      const url = new URL("https://q.us-east-1.amazonaws.com/getUsageLimits");
+      url.searchParams.set("origin", "AI_EDITOR");
+      url.searchParams.set("resourceType", "AGENTIC_REQUEST");
+      url.searchParams.set("profileArn", profileArn);
+      const usageResp = await fetch(url.toString(), {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+          "User-Agent": "KiroIDE/compatible pool-proxy/1.0.0",
+        },
+      });
+      if (usageResp.ok) {
+        const usageData = (await usageResp.json()) as { userInfo?: { userId?: string } };
+        userId = usageData.userInfo?.userId || "";
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Spawn Playwright browser with cookies injected
+  try {
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch({ headless: false });
+    const context = await browser.newContext();
+
+    await context.addCookies([
+      { name: "AccessToken", value: accessToken || "", domain: "app.kiro.dev", path: "/" },
+      { name: "RefreshToken", value: refreshToken, domain: "app.kiro.dev", path: "/" },
+      { name: "UserId", value: userId, domain: "app.kiro.dev", path: "/" },
+      { name: "Idp", value: "Google", domain: "app.kiro.dev", path: "/" },
+    ]);
+
+    const page = await context.newPage();
+    await page.goto("https://app.kiro.dev/settings/account");
+
+    return c.json({ success: true, message: `Browser opened for ${account.email}` });
+  } catch (error) {
+    return c.json({ error: `Failed to open browser: ${error instanceof Error ? error.message : String(error)}` }, 500);
+  }
+});

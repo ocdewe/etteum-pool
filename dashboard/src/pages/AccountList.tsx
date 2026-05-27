@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Search, Trash2, RefreshCw, RotateCcw } from "lucide-react";
+import { ArrowLeft, Search, Trash2, RefreshCw, RotateCcw, ExternalLink } from "lucide-react";
 import { formatDateTimeID } from "@/lib/utils";
 import { useTimedMessage } from "@/hooks/useTimedMessage";
 import {
@@ -12,12 +12,13 @@ import {
   fetchAccounts,
   loginAccount,
   loginAccounts,
+  openPanel,
   toggleAccountEnabled,
   warmupAccount,
   warmupAllAccounts,
 } from "@/lib/api";
 
-type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "windsurf" | "moclaw" | "codex" | "pioneer";
+type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "windsurf" | "moclaw" | "codex" | "pioneer" | "qoder";
 type Status = "active" | "exhausted" | "error" | "pending" | "disabled";
 
 interface CodexQuotaWindow {
@@ -45,7 +46,11 @@ interface Account {
   lastUsedAt?: string | null;
   lastLoginAt?: string | null;
   errorMessage?: string | null;
-  metadata?: { codex_quota?: CodexQuotaMetadata } | null;
+  metadata?: {
+    codex_quota?: CodexQuotaMetadata;
+    overage?: { enabled: boolean; capable: boolean; used: number; cap: number; remaining: number } | null;
+    inferenceProbe?: string;
+  } | null;
 }
 
 const statusVariants: Record<string, "success" | "warning" | "error" | "secondary"> = {
@@ -161,6 +166,10 @@ export default function AccountList() {
     try { await loginAccount(id); showSuccess(`Login queued #${id}`); await load(); } catch (err) { showError(err); }
   }
 
+  async function handleOpenPanel(id: number) {
+    try { await openPanel(id); showSuccess(`Panel opened #${id}`); } catch (err) { showError(err); }
+  }
+
   async function handleRetryErrors() {
     const ids = accounts.filter((a) => a.status === "error").map((a) => a.id);
     if (ids.length === 0) return;
@@ -273,11 +282,23 @@ export default function AccountList() {
                     <td className="p-4 text-sm text-[var(--muted-foreground)]">
                       {account.provider === "codex"
                         ? <CodexQuotaCell codex={account.metadata?.codex_quota} fallbackRemaining={account.quotaRemaining} fallbackLimit={account.quotaLimit} />
-                        : `${formatCredit(account.quotaRemaining)}/${formatCredit(account.quotaLimit)}`}
+                        : <span className="flex items-center gap-1.5">
+                            {formatCredit(account.quotaRemaining)}/{formatCredit(account.quotaLimit)}
+                            {account.metadata?.overage?.enabled && account.metadata.overage.remaining > 0 && (
+                              <Badge variant="success" className="text-[10px] px-1 py-0">
+                                PAYG: {Math.round(account.metadata.overage.used)}
+                              </Badge>
+                            )}
+                          </span>}
                     </td>
                     <td className="p-4 text-xs text-[var(--muted-foreground)]">{formatDate(account.lastLoginAt || account.lastUsedAt)}</td>
                     <td className="p-4">
                       <div className="flex gap-1">
+                        {account.provider.startsWith("kiro") && (
+                          <Button variant="ghost" size="icon" onClick={() => handleOpenPanel(account.id)} title="Open Kiro Panel">
+                            <ExternalLink className="w-4 h-4 text-blue-400" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" onClick={() => handleWarmup(account.id)} title="WarmUp">
                           <RefreshCw className="w-4 h-4 text-yellow-400" />
                         </Button>

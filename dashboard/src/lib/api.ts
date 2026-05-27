@@ -261,6 +261,10 @@ export async function loginAllAccounts(options?: { headless?: boolean; concurren
   });
 }
 
+export async function openPanel(id: number) {
+  return fetchApi(`/api/accounts/${id}/open-panel`, { method: "POST" });
+}
+
 export async function stopAccount(id: number) {
   return fetchApi(`/api/auth/stop/${id}`, { method: "POST" });
 }

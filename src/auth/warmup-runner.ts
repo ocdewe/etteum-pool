@@ -56,6 +56,7 @@ function mergeWarmupMetadata(account: Account, health: ProviderHealthResult) {
       authRefreshed: Boolean(health.tokens),
       lastError: shortError(health.error || health.message),
     },
+    overage: health.quota?.overage || existing.overage || null,
   };
 }
 
@@ -175,6 +176,32 @@ export async function warmupAccount(account: Account): Promise<WarmupResult> {
   });
 
   const health = await provider.healthCheck(account);
+
+  // For kiro/kiro-pro accounts marked exhausted but with overage enabled,
+  // probe inference to verify if the account can still serve requests.
+  if (health.kind === "exhausted" && account.provider.startsWith("kiro") && health.quota?.overage?.enabled) {
+    try {
+      const probeResult = await provider.chatCompletion(account, {
+        model: account.provider === "kiro-pro" ? "claude-sonnet-4.6" : "auto",
+        messages: [{ role: "user", content: "Say OK" }],
+        max_tokens: 4,
+      });
+      if (probeResult.success) {
+        // Inference works — override health to healthy (PAYG active)
+        health.kind = "healthy";
+        health.success = true;
+        health.metadata = { ...health.metadata, inferenceProbe: "passed", overageBudget: true };
+      } else if (probeResult.quotaExhausted) {
+        // Truly exhausted (overage cap hit)
+        health.metadata = { ...health.metadata, inferenceProbe: "quota_exhausted" };
+      } else {
+        health.metadata = { ...health.metadata, inferenceProbe: "failed", probeError: probeResult.error?.slice(0, 100) };
+      }
+    } catch (e) {
+      health.metadata = { ...health.metadata, inferenceProbe: "error", probeError: (e instanceof Error ? e.message : String(e)).slice(0, 100) };
+    }
+  }
+
   const update = mapHealthToAccountUpdate(account, health);
 
   const dbUpdate: Record<string, unknown> = {

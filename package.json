@@ -12,6 +12,7 @@
     "setup:win": "powershell -ExecutionPolicy Bypass -File install.ps1"
   },
   "dependencies": {
+    "cbor-x": "^1.6.4",
     "playwright": "^1.40.0"
   },
   "devDependencies": {

@@ -5,7 +5,7 @@ import type { Account } from "../db/schema";
 import { broadcast } from "../ws/index";
 import { config } from "../config";
 
-export type ProviderName = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "windsurf" | "moclaw" | "codex" | "pioneer";
+export type ProviderName = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "windsurf" | "moclaw" | "codex" | "pioneer" | "qoder";
 
 interface PoolState {
   lastIndex: Map<ProviderName, number>;
@@ -233,6 +233,9 @@ class AccountPool {
 
     // === PIONEER ===
     if (m.startsWith("pio-")) return "pioneer";
+
+    // === QODER ===
+    if (m.startsWith("qd-")) return "qoder";
 
     // === CODEX (OpenAI) ===
     if (m.startsWith("codex-") || m === "gpt-5-codex") return "codex";

@@ -29,7 +29,7 @@ import {
   type AutoWarmupStatus,
 } from "@/lib/api";
 
-type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex" | "pioneer";
+type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex" | "pioneer" | "qoder";
 
 interface Account {
   id: number;
@@ -40,7 +40,7 @@ interface Account {
   quotaRemaining?: number;
 }
 
-const providers: Provider[] = ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw", "codex", "pioneer"];
+const providers: Provider[] = ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw", "codex", "pioneer", "qoder"];
 
 function labelProvider(provider: string) {
   if (provider === "kiro-pro") return "Kiro Pro";
@@ -48,6 +48,7 @@ function labelProvider(provider: string) {
   if (provider === "zai") return "Z.ai";
   if (provider === "moclaw") return "Moclaw";
   if (provider === "codex") return "Codex";
+  if (provider === "qoder") return "Qoder";
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
@@ -66,8 +67,9 @@ export default function Accounts() {
   const [addForm, setAddForm] = useState({ email: "", password: "", provider: "kiro" as Provider, browserEngine: "camoufox", headless: false });
   const [addDialogProvider, setAddDialogProvider] = useState<Provider | null>(null);
   const [instantTokens, setInstantTokens] = useState("");
+  const [cookieValue, setCookieValue] = useState("");
   const [bulkText, setBulkText] = useState("");
-  const [addMode, setAddMode] = useState<"single" | "bulk" | "instant">("bulk");
+  const [addMode, setAddMode] = useState<"single" | "bulk" | "instant" | "pat">("bulk");
   const [bulkBrowserEngine, setBulkBrowserEngine] = useState("camoufox");
   const [bulkHeadless, setBulkHeadless] = useState(true);
   const [bulkConcurrency, setBulkConcurrency] = useState(3);
@@ -226,6 +228,23 @@ export default function Accounts() {
       });
       showSuccess(`Instant login: ${res.success} success, ${res.failed} failed`);
       setInstantTokens("");
+      setAddDialogProvider(null);
+      await load();
+    } catch (err) { showError(err); }
+  }
+
+  async function handleCookieLogin() {
+    if (!cookieValue.trim()) { showError(new Error("Paste Personal Access Token (PAT)")); return; }
+    try {
+      const res = await fetchApi<any>("/api/accounts", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "qoder",
+          personalToken: cookieValue.trim(),
+        }),
+      });
+      showSuccess("Qoder account added successfully");
+      setCookieValue("");
       setAddDialogProvider(null);
       await load();
     } catch (err) { showError(err); }
@@ -442,6 +461,8 @@ export default function Accounts() {
             <DialogDescription>
               {addDialogProvider === "kiro-pro" || addDialogProvider === "codex" || addDialogProvider === "pioneer"
                 ? "Add via browser login or instant login with API key/token."
+                : addDialogProvider === "qoder"
+                ? "Add via Personal Access Token (PAT) from qoder.com."
                 : `Add account for ${addDialogProvider ? labelProvider(addDialogProvider) : "this provider"}.`}
             </DialogDescription>
           </DialogHeader>
@@ -459,6 +480,12 @@ export default function Accounts() {
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "single" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Single</button>
             </div>
+          ) : addDialogProvider === "qoder" ? (
+            <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
+              <button onClick={() => setAddMode("pat")}
+                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "pat" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
+              >Personal Access Token</button>
+            </div>
           ) : (
             <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
               <button onClick={() => setAddMode("bulk")}
@@ -467,6 +494,26 @@ export default function Accounts() {
               <button onClick={() => setAddMode("single")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "single" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Single</button>
+            </div>
+          )}
+
+          {/* Personal Access Token mode (Qoder only) */}
+          {addMode === "pat" && addDialogProvider === "qoder" && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-[var(--foreground)]">Personal Access Token (PAT)</label>
+                <textarea
+                  value={cookieValue}
+                  onChange={(e) => setCookieValue(e.target.value)}
+                  className="mt-1 w-full h-40 rounded-md border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-mono text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] resize-none"
+                  placeholder="qd-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                />
+                <p className="mt-1 text-xs text-[var(--muted-foreground)]">Paste Qoder Personal Access Token. Server akan menukar dengan jobToken otomatis dan menyimpan kredensial untuk inference.</p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setAddDialogProvider(null)}>Cancel</Button>
+                <Button onClick={handleCookieLogin}>Add Account</Button>
+              </div>
             </div>
           )}
 
