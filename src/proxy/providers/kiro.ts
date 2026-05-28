@@ -851,6 +851,8 @@ export class KiroProvider extends BaseProvider {
               if (event.headers[":message-type"] === "error" || event.headers[":message-type"] === "exception") {
                 throw new Error(typeof payload === "string" ? payload : payload?.message || event.headers[":error-code"] || "Kiro stream error");
               }
+              const reasoning = this.extractReasoningText(payload, eventType);
+              if (reasoning) enqueue({ reasoning_content: reasoning });
               const text = this.extractEventText(payload, eventType);
               if (text) { streamedContentLength += text.length; enqueue({ content: text }); }
               const tool = payload?.toolUseEvent || (eventType === "toolUseEvent" ? payload : null);
@@ -994,8 +996,15 @@ export class KiroProvider extends BaseProvider {
 
   private extractEventText(payload: any, eventType?: string): string {
     if (!payload || typeof payload !== "object") return "";
+    if (eventType && /reason|thinking/i.test(eventType)) return "";
     if (eventType && !/assistant|response|text|content/i.test(eventType)) return "";
     return typeof payload.content === "string" ? payload.content : typeof payload.text === "string" ? payload.text : typeof payload.delta === "string" ? payload.delta : "";
+  }
+
+  private extractReasoningText(payload: any, eventType?: string): string {
+    if (!payload || typeof payload !== "object") return "";
+    if (!eventType || !/reason|thinking/i.test(eventType)) return "";
+    return typeof payload.text === "string" ? payload.text : typeof payload.content === "string" ? payload.content : typeof payload.delta === "string" ? payload.delta : "";
   }
 
   private isCompleteJson(value: string): boolean {

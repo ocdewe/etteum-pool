@@ -202,6 +202,29 @@ export async function warmupAccount(account: Account): Promise<WarmupResult> {
     }
   }
 
+  // For qoder accounts: server-reported quota=0 doesn't always mean truly exhausted.
+  // Probe inference with the cheapest model (qd-Lite, price_factor=0) to confirm.
+  if (health.kind === "exhausted" && account.provider === "qoder") {
+    try {
+      const probeResult = await provider.chatCompletion(account, {
+        model: "qd-Lite",
+        messages: [{ role: "user", content: "Say OK" }],
+        max_tokens: 4,
+      });
+      if (probeResult.success) {
+        health.kind = "healthy";
+        health.success = true;
+        health.metadata = { ...health.metadata, inferenceProbe: "passed", quotaOverride: true };
+      } else if (probeResult.quotaExhausted) {
+        health.metadata = { ...health.metadata, inferenceProbe: "quota_exhausted" };
+      } else {
+        health.metadata = { ...health.metadata, inferenceProbe: "failed", probeError: probeResult.error?.slice(0, 100) };
+      }
+    } catch (e) {
+      health.metadata = { ...health.metadata, inferenceProbe: "error", probeError: (e instanceof Error ? e.message : String(e)).slice(0, 100) };
+    }
+  }
+
   const update = mapHealthToAccountUpdate(account, health);
 
   const dbUpdate: Record<string, unknown> = {

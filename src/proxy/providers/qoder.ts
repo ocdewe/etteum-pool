@@ -295,18 +295,18 @@ interface QoderModelDef {
 }
 
 const QODER_MODELS: QoderModelDef[] = [
-  { id: "qd-auto",            upstream: "auto",          display_name: "Auto",              max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 1 },
-  { id: "qd-ultimate",        upstream: "ultimate",      display_name: "Ultimate",          max_input_tokens: 180000, is_vl: true,  is_reasoning: true,  price_factor: 1.6 },
-  { id: "qd-performance",     upstream: "performance",   display_name: "Performance",       max_input_tokens: 272000, is_vl: true,  is_reasoning: false, price_factor: 1.1 },
-  { id: "qd-efficient",       upstream: "efficient",     display_name: "Efficient",         max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 0.3 },
-  { id: "qd-lite",            upstream: "lite",          display_name: "Lite",              max_input_tokens: 180000, is_vl: false, is_reasoning: false, price_factor: 0 },
-  { id: "qd-qwen-max",        upstream: "qmodel_latest", display_name: "Qwen3.7-Max",       max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 0.2 },
-  { id: "qd-qwen",            upstream: "qmodel",        display_name: "Qwen3.6-Plus",      max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 0.2 },
-  { id: "qd-deepseek",        upstream: "dmodel",        display_name: "DeepSeek-V4-Pro",   max_input_tokens: 180000, is_vl: true,  is_reasoning: true,  price_factor: 0.5 },
-  { id: "qd-deepseek-flash",  upstream: "dfmodel",       display_name: "DeepSeek-V4-Flash", max_input_tokens: 180000, is_vl: true,  is_reasoning: true,  price_factor: 0.1 },
-  { id: "qd-glm",             upstream: "gm51model",     display_name: "GLM-5.1",           max_input_tokens: 180000, is_vl: true,  is_reasoning: true,  price_factor: 0.6 },
-  { id: "qd-kimi",            upstream: "kmodel",        display_name: "Kimi-K2.6",         max_input_tokens: 256000, is_vl: true,  is_reasoning: false, price_factor: 0.3 },
-  { id: "qd-minimax",         upstream: "mmodel",        display_name: "MiniMax-M2.7",      max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 0.2 },
+  { id: "qd-Auto",              upstream: "auto",          display_name: "Auto",              max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 1 },
+  { id: "qd-Ultimate",          upstream: "ultimate",      display_name: "Ultimate",          max_input_tokens: 180000, is_vl: true,  is_reasoning: true,  price_factor: 1.6 },
+  { id: "qd-Performance",       upstream: "performance",   display_name: "Performance",       max_input_tokens: 272000, is_vl: true,  is_reasoning: false, price_factor: 1.1 },
+  { id: "qd-Efficient",         upstream: "efficient",     display_name: "Efficient",         max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 0.3 },
+  { id: "qd-Lite",              upstream: "lite",          display_name: "Lite",              max_input_tokens: 180000, is_vl: false, is_reasoning: false, price_factor: 0 },
+  { id: "qd-Qwen3.7-Max",       upstream: "qmodel_latest", display_name: "Qwen3.7-Max",       max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 0.2 },
+  { id: "qd-Qwen3.6-Plus",      upstream: "qmodel",        display_name: "Qwen3.6-Plus",      max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 0.2 },
+  { id: "qd-DeepSeek-V4-Pro",   upstream: "dmodel",        display_name: "DeepSeek-V4-Pro",   max_input_tokens: 180000, is_vl: true,  is_reasoning: true,  price_factor: 0.5 },
+  { id: "qd-DeepSeek-V4-Flash", upstream: "dfmodel",       display_name: "DeepSeek-V4-Flash", max_input_tokens: 180000, is_vl: true,  is_reasoning: true,  price_factor: 0.1 },
+  { id: "qd-GLM-5.1",           upstream: "gm51model",     display_name: "GLM-5.1",           max_input_tokens: 180000, is_vl: true,  is_reasoning: true,  price_factor: 0.6 },
+  { id: "qd-Kimi-K2.6",         upstream: "kmodel",        display_name: "Kimi-K2.6",         max_input_tokens: 256000, is_vl: true,  is_reasoning: false, price_factor: 0.3 },
+  { id: "qd-MiniMax-M2.7",      upstream: "mmodel",        display_name: "MiniMax-M2.7",      max_input_tokens: 180000, is_vl: true,  is_reasoning: false, price_factor: 0.2 },
 ];
 
 const MODEL_CONFIGS: Record<string, QoderModelDef> = Object.fromEntries(
@@ -341,11 +341,20 @@ function extractLatestUserPrompt(request: ChatCompletionRequest): string {
   return "";
 }
 
-function buildQoderMessages(request: ChatCompletionRequest, templateMessages: any[] | undefined): any[] {
+function buildQoderMessages(request: ChatCompletionRequest, templateMessages: any[] | undefined, hasIncomingTools: boolean): any[] {
   const incomingHasSystem = request.messages.some((m) => m.role === "system");
   const result: any[] = [];
 
-  if (!incomingHasSystem && Array.isArray(templateMessages)) {
+  if (hasIncomingTools && !incomingHasSystem) {
+    const toolNames = (request.tools || [])
+      .map((t: any) => t?.function?.name || t?.name)
+      .filter(Boolean)
+      .join(", ");
+    result.push({
+      role: "system",
+      content: `You are a helpful assistant with access to the following tools: ${toolNames}.\n\nWhen the user's request can be answered or fulfilled by calling one of these tools, you MUST call the tool. Do not say you cannot help; instead, invoke the appropriate tool with the correct arguments. Only respond with text when no tool is applicable.`,
+    });
+  } else if (!hasIncomingTools && !incomingHasSystem && Array.isArray(templateMessages)) {
     for (const m of templateMessages) {
       if (m && m.role === "system") result.push(m);
     }
@@ -357,11 +366,56 @@ function buildQoderMessages(request: ChatCompletionRequest, templateMessages: an
       continue;
     }
     if (Array.isArray(m.content)) {
-      const text = (m.content as any[])
-        .filter((b) => b?.type === "text" && typeof b.text === "string")
-        .map((b) => b.text)
-        .join("\n");
-      result.push({ role: m.role, content: text });
+      const blocks = m.content as any[];
+      const textParts: string[] = [];
+      const toolCalls: any[] = [];
+      const toolResults: { tool_call_id: string; content: string }[] = [];
+
+      for (const b of blocks) {
+        if (!b || typeof b !== "object") continue;
+        if (b.type === "text" && typeof b.text === "string") {
+          textParts.push(b.text);
+        } else if (b.type === "tool_use") {
+          toolCalls.push({
+            id: b.id,
+            type: "function",
+            function: {
+              name: b.name,
+              arguments: typeof b.input === "string" ? b.input : JSON.stringify(b.input || {}),
+            },
+          });
+        } else if (b.type === "tool_result") {
+          let content = "";
+          if (typeof b.content === "string") {
+            content = b.content;
+          } else if (Array.isArray(b.content)) {
+            content = (b.content as any[])
+              .map((inner) => (inner?.type === "text" && typeof inner.text === "string" ? inner.text : ""))
+              .filter(Boolean)
+              .join("\n");
+          }
+          if (b.is_error) content = `[ERROR] ${content}`;
+          toolResults.push({ tool_call_id: b.tool_use_id, content });
+        }
+      }
+
+      if (m.role === "assistant" && toolCalls.length > 0) {
+        const msg: any = { role: "assistant", content: textParts.join("\n") };
+        msg.tool_calls = toolCalls;
+        result.push(msg);
+        continue;
+      }
+
+      if (m.role === "user" && toolResults.length > 0) {
+        for (const tr of toolResults) {
+          result.push({ role: "tool", tool_call_id: tr.tool_call_id, content: tr.content });
+        }
+        const text = textParts.join("\n");
+        if (text) result.push({ role: "user", content: text });
+        continue;
+      }
+
+      result.push({ role: m.role, content: textParts.join("\n") });
       continue;
     }
     result.push({ role: m.role, content: "" });
@@ -374,6 +428,7 @@ function buildChatBody(request: ChatCompletionRequest, tokens: QoderTokens): any
   const prompt = extractLatestUserPrompt(request);
   const cfg = MODEL_CONFIGS[request.model] || QODER_MODELS[0]!;
   const reqId = crypto.randomUUID();
+  const hasIncomingTools = Array.isArray(request.tools) && request.tools.length > 0;
 
   const template = loadTemplate();
   const body: any = template ? JSON.parse(JSON.stringify(template)) : {};
@@ -407,13 +462,13 @@ function buildChatBody(request: ChatCompletionRequest, tokens: QoderTokens): any
   body.chat_context.extra.modelConfig.key = cfg.upstream;
   body.chat_context.extra.modelConfig.is_reasoning = cfg.is_reasoning;
 
-  body.messages = buildQoderMessages(request, body.messages);
+  body.messages = buildQoderMessages(request, body.messages, hasIncomingTools);
 
   if (request.max_tokens && body.parameters) {
     body.parameters.max_tokens = request.max_tokens;
   }
 
-  if (Array.isArray(request.tools) && request.tools.length > 0) {
+  if (hasIncomingTools) {
     body.tools = request.tools;
   }
 
@@ -430,6 +485,7 @@ interface ToolCallAcc {
 interface ParsedDelta {
   role?: string;
   content?: string;
+  reasoningContent?: string;
   toolCalls?: any[];
   finishReason?: string;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
@@ -463,6 +519,7 @@ function parseSseLine(line: string): ParsedDelta | null {
     if (choice.finish_reason) result.finishReason = choice.finish_reason;
     if (typeof delta.role === "string") result.role = delta.role;
     if (typeof delta.content === "string") result.content = delta.content;
+    if (typeof delta.reasoning_content === "string") result.reasoningContent = delta.reasoning_content;
     if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
       result.toolCalls = delta.tool_calls;
     }
@@ -671,6 +728,8 @@ export class QoderProvider extends BaseProvider {
                 enqueue({ role: "assistant" });
                 sentRole = true;
               }
+
+              if (parsedDelta.reasoningContent) enqueue({ reasoning_content: parsedDelta.reasoningContent });
 
               if (parsedDelta.content) enqueue({ content: parsedDelta.content });
 

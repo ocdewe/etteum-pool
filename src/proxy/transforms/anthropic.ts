@@ -19,6 +19,7 @@ export interface AnthropicMessagesRequest {
   stream?: boolean;
   tools?: any[];
   tool_choice?: any;
+  thinking?: { type: string; budget_tokens?: number };
 }
 
 function contentToText(content: string | AnthropicContentBlock[] | undefined): string {
@@ -68,6 +69,7 @@ export function anthropicToOpenAI(body: AnthropicMessagesRequest): ChatCompletio
     stream: body.stream,
     tools: body.tools,
     tool_choice: body.tool_choice,
+    thinking: body.thinking,
   };
 }
 
@@ -109,6 +111,7 @@ export function openAIStreamToAnthropic(stream: ReadableStream<Uint8Array>, requ
   let index = 0;
   let blockIndex = -1;
   let textBlockOpen = false;
+  let thinkingBlockOpen = false;
   const toolBlocks = new Map<number, number>();
   const closedToolBlocks = new Set<number>();
   let stopReason = "end_turn";
@@ -141,6 +144,10 @@ export function openAIStreamToAnthropic(stream: ReadableStream<Uint8Array>, requ
 
       const ensureTextBlock = () => {
         if (textBlockOpen) return;
+        if (thinkingBlockOpen) {
+          controller.enqueue(event("content_block_stop", { type: "content_block_stop", index: blockIndex }));
+          thinkingBlockOpen = false;
+        }
         blockIndex += 1;
         textBlockOpen = true;
         controller.enqueue(event("content_block_start", {
@@ -167,7 +174,31 @@ export function openAIStreamToAnthropic(stream: ReadableStream<Uint8Array>, requ
             try {
               const chunk = JSON.parse(payload);
               const finishReason = chunk?.choices?.[0]?.finish_reason;
-              const text = chunk?.choices?.[0]?.delta?.content || "";
+              const delta = chunk?.choices?.[0]?.delta || {};
+              const reasoning = delta.reasoning_content || "";
+              const text = delta.content || "";
+
+              if (reasoning) {
+                if (!thinkingBlockOpen) {
+                  if (textBlockOpen) {
+                    controller.enqueue(event("content_block_stop", { type: "content_block_stop", index: blockIndex }));
+                    textBlockOpen = false;
+                  }
+                  blockIndex += 1;
+                  thinkingBlockOpen = true;
+                  controller.enqueue(event("content_block_start", {
+                    type: "content_block_start",
+                    index: blockIndex,
+                    content_block: { type: "thinking", thinking: "" },
+                  }));
+                }
+                controller.enqueue(event("content_block_delta", {
+                  type: "content_block_delta",
+                  index: blockIndex,
+                  delta: { type: "thinking_delta", thinking: reasoning },
+                }));
+              }
+
               if (text) {
                 ensureTextBlock();
                 controller.enqueue(event("content_block_delta", {
@@ -177,13 +208,17 @@ export function openAIStreamToAnthropic(stream: ReadableStream<Uint8Array>, requ
                 }));
                 index += text.length;
               }
-              for (const call of chunk?.choices?.[0]?.delta?.tool_calls || []) {
+              for (const call of delta.tool_calls || []) {
                 stopReason = "tool_use";
                 const callIndex = Number(call.index || 0);
                 if (!toolBlocks.has(callIndex)) {
                   if (textBlockOpen) {
                     controller.enqueue(event("content_block_stop", { type: "content_block_stop", index: blockIndex }));
                     textBlockOpen = false;
+                  }
+                  if (thinkingBlockOpen) {
+                    controller.enqueue(event("content_block_stop", { type: "content_block_stop", index: blockIndex }));
+                    thinkingBlockOpen = false;
                   }
                   blockIndex += 1;
                   toolBlocks.set(callIndex, blockIndex);
@@ -226,6 +261,7 @@ export function openAIStreamToAnthropic(stream: ReadableStream<Uint8Array>, requ
         }
       } finally {
         if (textBlockOpen) controller.enqueue(event("content_block_stop", { type: "content_block_stop", index: blockIndex }));
+        if (thinkingBlockOpen) controller.enqueue(event("content_block_stop", { type: "content_block_stop", index: blockIndex }));
         for (const toolBlockIndex of toolBlocks.values()) {
           if (!closedToolBlocks.has(toolBlockIndex)) {
             controller.enqueue(event("content_block_stop", { type: "content_block_stop", index: toolBlockIndex }));
