@@ -170,8 +170,8 @@ authRouter.post("/import", async (c) => {
     return c.json({ error: "text field is required" }, 400);
   }
 
-  const providers = (body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"]).filter((p) =>
-    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"].includes(p)
+  const providers = (body.providers || ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer", "qoder"]).filter((p) =>
+    ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer", "qoder"].includes(p)
   );
 
   const lines = body.text.trim().split("\n");

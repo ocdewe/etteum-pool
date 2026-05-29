@@ -23,7 +23,7 @@ const JOB_TOKEN_URL = "https://center.qoder.sh/algo/api/v3/user/jobToken?Encode=
 const USER_STATUS_URL = "https://center.qoder.sh/algo/api/v3/user/status?Encode=1";
 const QOTA_USAGE_URL = "https://openapi.qoder.sh/api/v2/quota/usage";
 
-function openApiHeaders(securityOauthToken: string): Record<string, string> {
+export function openApiHeaders(securityOauthToken: string): Record<string, string> {
   return {
     Accept: "application/json",
     Authorization: `Bearer ${securityOauthToken}`,
@@ -57,7 +57,7 @@ for (let i = 0; i < 64; i++) {
 C2S[CUSTOM_PAD.charCodeAt(0)] = "=".charCodeAt(0);
 S2C["=".charCodeAt(0)] = CUSTOM_PAD.charCodeAt(0);
 
-function encodeQoderPayload(data: Uint8Array | string): string {
+export function encodeQoderPayload(data: Uint8Array | string): string {
   const bytes = typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data);
   const std = bytes.toString("base64");
   const n = std.length;
@@ -168,7 +168,7 @@ function generateMachineIdentity() {
   return { machineId, machineToken, machineType };
 }
 
-function signatureHeaders(tokens: QoderTokens): Record<string, string> {
+export function signatureHeaders(tokens: QoderTokens): Record<string, string> {
   const date = rfc1123Date();
   return {
     "cosy-machinetoken": tokens.machineToken,
@@ -244,7 +244,7 @@ interface BearerCallOptions {
   stream?: boolean;
 }
 
-async function bearerFetch(tokens: QoderTokens, opts: BearerCallOptions): Promise<Response> {
+export async function bearerFetch(tokens: QoderTokens, opts: BearerCallOptions): Promise<Response> {
   const session = buildSessionContext(buildIdentity(tokens));
   const bodyEncoded = opts.body == null ? "" : encodeQoderPayload(JSON.stringify(opts.body));
   const payloadB64 = buildPayloadB64(session.info);
