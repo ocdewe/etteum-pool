@@ -529,8 +529,9 @@ proxyRouter.post("/v1/chat/completions", async (c) => {
       error instanceof Error ? error.message : String(error);
 
     // Log the error without masking the original proxy failure.
+    const provider = pool.getProviderForModel(normalizeModelId(body.model)) || "unknown";
     await logProxyError({
-      provider: "unknown",
+      provider,
       model: body.model,
       status: "error",
       errorMessage,
@@ -601,8 +602,9 @@ proxyRouter.post("/v1/messages", async (c) => {
     return c.json(openAIToAnthropic(result.response, body));
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const provider = pool.getProviderForModel(normalizeModelId(body.model)) || "unknown";
     await logProxyError({
-      provider: "unknown",
+      provider,
       model: body.model,
       status: "error",
       errorMessage,

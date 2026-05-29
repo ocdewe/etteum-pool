@@ -22,6 +22,7 @@ export const config = {
   headless: process.env.HEADLESS !== "false", // default true
   logBodyEnabled: process.env.POOLPROX_LOG_BODY_ENABLED !== "false",
   logBodyFull: process.env.POOLPROX_LOG_BODY_FULL === "true",
+  logBodyRedact: process.env.POOLPROX_LOG_BODY_REDACT !== "false",
   logBodyMaxBytes: Number(process.env.POOLPROX_LOG_BODY_MAX_BYTES) || 65536,
   accountCacheTtlMs: Number(process.env.POOLPROX_ACCOUNT_CACHE_TTL_MS) || 3000,
   authProcessTimeoutMs: Number(process.env.POOLPROX_AUTH_PROCESS_TIMEOUT_MS) || 10 * 60 * 1000,
@@ -36,8 +37,8 @@ export const config = {
   browserEngine: process.env.BROWSER_ENGINE || "camoufox",
   captchaService: process.env.CAPTCHA_SERVICE || "none",
   captchaApiKey: process.env.CAPTCHA_API_KEY || "",
-  // Providers: kiro, kiro-pro, codebuddy, canva, zai, windsurf, moclaw, codex, pioneer
-  providers: ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer"] as const,
+  // Providers: kiro, kiro-pro, codebuddy, canva, zai, windsurf, moclaw, codex, pioneer, qoder
+  providers: ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "windsurf", "moclaw", "codex", "pioneer", "qoder"] as const,
 } as const;
 
 export type Config = typeof config;

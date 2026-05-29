@@ -16,16 +16,49 @@ export interface UnserializableLogBody {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+// Keys whose values carry raw prompt/response text. Redacted before storage so
+// request_logs never persists (and can never replay) client prompts/conversation.
+const REDACT_KEYS = new Set([
+  "content", "text", "system", "arguments",
+  "reasoning_content", "thinking", "input", "partial_json", "description",
+]);
+
+function redactLogBody(value: unknown): unknown {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(redactLogBody);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (REDACT_KEYS.has(key)) {
+        if (typeof val === "string") {
+          out[key] = `[redacted ${val.length} chars]`;
+        } else if (val == null) {
+          out[key] = val;
+        } else {
+          const len = JSON.stringify(val)?.length ?? 0;
+          out[key] = `[redacted ${len} chars]`;
+        }
+      } else {
+        out[key] = redactLogBody(val);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 export function prepareLogBody(value: unknown): unknown {
-  const { logBodyEnabled, logBodyFull, logBodyMaxBytes } = config;
+  const { logBodyEnabled, logBodyFull, logBodyRedact, logBodyMaxBytes } = config;
   if (!logBodyEnabled) return null;
   if (logBodyFull) return value;
 
+  const redacted = logBodyRedact ? redactLogBody(value) : value;
+
   const maxBytes = Math.max(0, logBodyMaxBytes);
-  const serialized = serializeForLog(value);
+  const serialized = serializeForLog(redacted);
   const bytes = encoder.encode(serialized).byteLength;
 
-  if (bytes <= maxBytes) return value;
+  if (bytes <= maxBytes) return redacted;
 
   return {
     truncated: true,

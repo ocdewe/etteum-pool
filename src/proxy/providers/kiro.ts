@@ -194,9 +194,96 @@ export class KiroProvider extends BaseProvider {
     return uses;
   }
 
-  private buildHistory(messages: ChatCompletionRequest["messages"], modelId: string): any[] {
+  /**
+   * Normalize OpenAI-style `role:"tool"` messages into the Anthropic-style
+   * `tool_result` content blocks the rest of the Kiro builder already handles.
+   * Consecutive tool messages are merged into one synthesized user turn, mirroring
+   * what the /v1/messages path produces. Without this, tool outputs are dropped and
+   * the assistant's toolUses have no matching toolResults → Kiro 400 "Improperly formed request."
+   */
+  private normalizeMessages(
+    messages: ChatCompletionRequest["messages"]
+  ): ChatCompletionRequest["messages"] {
+    const out: ChatCompletionRequest["messages"] = [];
+    let pending: any[] | null = null;
+
+    const flush = () => {
+      if (pending && pending.length > 0) out.push({ role: "user", content: pending });
+      pending = null;
+    };
+
+    for (const message of messages) {
+      if (message.role === "tool") {
+        if (!pending) pending = [];
+        pending.push({
+          type: "tool_result",
+          tool_use_id: (message as any).tool_call_id,
+          content: typeof message.content === "string"
+            ? message.content
+            : JSON.stringify(message.content ?? ""),
+          is_error: false,
+        });
+      } else {
+        flush();
+        out.push(message);
+      }
+    }
+    flush();
+    return this.mergeConsecutiveMessages(out);
+  }
+
+  /**
+   * Kiro/CodeWhisperer requires the conversation to strictly alternate
+   * user → assistant → user. Clients (and the Anthropic→OpenAI transform) can
+   * emit consecutive same-role messages, which makes `history` end on a
+   * userInputMessage right before the current user turn → Kiro 400
+   * "Improperly formed request." Merge adjacent same-role messages so the
+   * sequence always alternates.
+   */
+  private mergeConsecutiveMessages(
+    messages: ChatCompletionRequest["messages"]
+  ): ChatCompletionRequest["messages"] {
+    const out: ChatCompletionRequest["messages"] = [];
+    for (const message of messages) {
+      const prev = out[out.length - 1];
+      if (prev && prev.role === message.role && message.role !== "system") {
+        out[out.length - 1] = this.mergeMessagePair(prev, message);
+      } else {
+        out.push({ ...message });
+      }
+    }
+    return out;
+  }
+
+  private mergeMessagePair(
+    a: ChatCompletionRequest["messages"][number],
+    b: ChatCompletionRequest["messages"][number]
+  ): ChatCompletionRequest["messages"][number] {
+    const toArray = (content: ChatCompletionRequest["messages"][number]["content"]): any[] => {
+      if (typeof content === "string") return content ? [{ type: "text", text: content }] : [];
+      return Array.isArray(content) ? content : [];
+    };
+
+    const content = typeof a.content === "string" && typeof b.content === "string"
+      ? [a.content, b.content].filter(Boolean).join("\n\n")
+      : [...toArray(a.content), ...toArray(b.content)];
+
+    const toolCalls = [...(a.tool_calls || []), ...(b.tool_calls || [])];
+
+    return {
+      role: a.role,
+      content,
+      ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
+    };
+  }
+
+  /**
+   * Build Kiro `history` from the messages that PRECEDE the current turn.
+   * Callers pass already-sliced prior messages (system messages stripped and
+   * same-role runs merged upstream), so this maps them 1:1 without re-slicing.
+   */
+  private buildHistory(priorMessages: ChatCompletionRequest["messages"], modelId: string): any[] {
     const history: any[] = [];
-    const priorMessages = messages.slice(0, -1).filter((message) => message.role !== "system");
     for (const message of priorMessages) {
       if (message.role === "user") {
         const toolResults = this.toolResultsFromContent(message.content);
@@ -616,17 +703,37 @@ export class KiroProvider extends BaseProvider {
     const isThinking = request.model.endsWith("-thinking") || !!request.reasoning_effort || !!request.thinking;
     const actualModel = request.model.endsWith("-thinking") ? request.model.replace("-thinking", "") : request.model;
 
-    const lastUser = [...request.messages].reverse().find((m) => m.role === "user");
-    const systemPrompt = this.textFromContent(request.messages.find((m) => m.role === "system")?.content || "");
+    // Collect EVERY system message (clients like opencode interleave multiple
+    // system-reminders rather than using a single leading system block).
+    const systemPrompt = request.messages
+      .filter((m) => m.role === "system")
+      .map((m) => this.textFromContent(m.content))
+      .filter(Boolean)
+      .join("\n\n");
+
+    // Strip system messages before normalizing so that any user turns that were
+    // separated only by a system message get merged into one, keeping the
+    // user → assistant → user alternation Kiro requires.
+    const nonSystem = request.messages.filter((m) => m.role !== "system");
+    const messages = this.normalizeMessages(nonSystem);
+
+    // The current turn is the final message; everything before it is history.
+    // Selecting by position (not "last user message") prevents the current turn
+    // from leaking into both `history` and `currentMessage` when the request
+    // ends with a non-user message → Kiro 400 "Improperly formed request."
+    const lastIndex = messages.length - 1;
+    const current = lastIndex >= 0 ? messages[lastIndex] : undefined;
+    const priorMessages = lastIndex > 0 ? messages.slice(0, lastIndex) : [];
+
     const conversationId = crypto.randomUUID();
     const tools = this.mapTools(request.tools);
-    const toolResults = this.toolResultsFromContent(lastUser?.content || "");
-    const history = this.buildHistory(request.messages, actualModel);
+    const toolResults = this.toolResultsFromContent(current?.content || "");
+    const history = this.buildHistory(priorMessages, actualModel);
     const context: Record<string, unknown> = { tools };
     if (toolResults.length > 0) context.toolResults = toolResults;
 
-    const userTextContent = this.textFromContent(lastUser?.content || "");
-    const imageBlocks = this.extractImageBlocks(lastUser?.content || "").slice(0, 10);
+    const userTextContent = this.textFromContent(current?.content || "");
+    const imageBlocks = this.extractImageBlocks(current?.content || "").slice(0, 10);
     const textContent = [systemPrompt, userTextContent].filter(Boolean).join("\n\n");
 
     const userInputMessage: Record<string, unknown> = {

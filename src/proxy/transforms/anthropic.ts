@@ -48,17 +48,78 @@ function anthropicContentToOpenAI(content: string | AnthropicContentBlock[] | un
   });
 }
 
+/**
+ * Convert Anthropic tool definitions `{ name, description, input_schema }` into
+ * the OpenAI shape `{ type: "function", function: { name, description, parameters } }`
+ * that every internal provider (kiro, kiro-pro, qoder, ...) expects.
+ *
+ * Without this, providers receive `input_schema` where they look for
+ * `function.parameters`, silently send no usable tool spec upstream, and the
+ * model replies with an empty turn — which surfaces in agents as "no reply".
+ */
+export function anthropicToolsToOpenAI(tools: any[] | undefined): any[] | undefined {
+  if (!Array.isArray(tools) || tools.length === 0) return undefined;
+  return tools
+    .map((tool) => {
+      // Already OpenAI-shaped — pass through untouched.
+      if (tool?.type === "function" && tool.function?.name) return tool;
+      const name = tool?.name;
+      if (!name) return null;
+      const parameters =
+        tool.input_schema ?? tool.parameters ?? { type: "object", properties: {} };
+      return {
+        type: "function",
+        function: {
+          name,
+          description: tool.description || "",
+          parameters,
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Convert Anthropic `tool_choice` into the OpenAI equivalent.
+ *   { type: "auto" }        -> "auto"
+ *   { type: "any" }         -> "required"
+ *   { type: "tool", name }  -> { type: "function", function: { name } }
+ *   "auto" | "none" | ...   -> passed through
+ */
+export function anthropicToolChoiceToOpenAI(toolChoice: any): any {
+  if (toolChoice == null) return undefined;
+  if (typeof toolChoice === "string") return toolChoice;
+  switch (toolChoice.type) {
+    case "auto":
+      return "auto";
+    case "any":
+      return "required";
+    case "tool":
+      return toolChoice.name
+        ? { type: "function", function: { name: toolChoice.name } }
+        : "required";
+    case "none":
+      return "none";
+    default:
+      return undefined;
+  }
+}
+
 export function anthropicToOpenAI(body: AnthropicMessagesRequest): ChatCompletionRequest {
   const messages: ChatCompletionRequest["messages"] = [];
   const system = contentToText(body.system);
   if (system) messages.push({ role: "system", content: system });
 
   for (const message of body.messages || []) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
     messages.push({
       role: message.role,
       content: anthropicContentToOpenAI(message.content),
     });
   }
+
+  const tools = anthropicToolsToOpenAI(body.tools);
+  const toolChoice = anthropicToolChoiceToOpenAI(body.tool_choice);
 
   return {
     model: body.model,
@@ -67,9 +128,9 @@ export function anthropicToOpenAI(body: AnthropicMessagesRequest): ChatCompletio
     temperature: body.temperature,
     top_p: body.top_p,
     stream: body.stream,
-    tools: body.tools,
-    tool_choice: body.tool_choice,
-    thinking: body.thinking,
+    ...(tools ? { tools } : {}),
+    ...(toolChoice !== undefined ? { tool_choice: toolChoice } : {}),
+    ...(body.thinking ? { thinking: body.thinking } : {}),
   };
 }
 
