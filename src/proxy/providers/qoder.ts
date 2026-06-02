@@ -382,13 +382,51 @@ function buildQoderMessages(request: ChatCompletionRequest, templateMessages: an
   const result: any[] = [];
 
   if (hasIncomingTools && !incomingHasSystem) {
+    // Build detailed tool descriptions with schemas for better guidance
+    const toolDescriptions = (request.tools || [])
+      .map((t: any) => {
+        const name = t?.function?.name || t?.name;
+        const desc = t?.function?.description || t?.description || "No description";
+        const params = t?.function?.parameters?.properties || t?.parameters?.properties || {};
+        const paramNames = Object.keys(params);
+        const paramInfo = paramNames.length > 0
+          ? ` Parameters: ${paramNames.join(", ")}`
+          : "";
+        return `- ${name}: ${desc}${paramInfo}`;
+      })
+      .filter(Boolean)
+      .join("\n");
+
     const toolNames = (request.tools || [])
       .map((t: any) => t?.function?.name || t?.name)
       .filter(Boolean)
       .join(", ");
+
     result.push({
       role: "system",
-      content: `You are a helpful assistant with access to the following tools: ${toolNames}.\n\nWhen the user's request can be answered or fulfilled by calling one of these tools, you MUST call the tool. Do not say you cannot help; instead, invoke the appropriate tool with the correct arguments. Only respond with text when no tool is applicable.`,
+      content: `You are a helpful assistant with access to the following tools:
+
+${toolDescriptions}
+
+## Tool Usage Guidelines:
+
+1. **When to use tools**: When the user's request requires information retrieval, file operations, code execution, or any action that these tools can perform, you MUST call the appropriate tool. Do not say you cannot help; instead, invoke the tool with the correct arguments.
+
+2. **Trust tool results**: After calling a tool, you will receive the tool result in the conversation. The tool result contains the actual data or outcome of the tool execution. Use this information to formulate your response. Do not claim you didn't receive file contents or data if the tool result was provided.
+
+3. **Multi-turn workflows**: For complex tasks requiring multiple tool calls:
+   - Call tools sequentially as needed
+   - Use information from previous tool results to inform subsequent calls
+   - Only respond with your final answer after you have gathered all necessary information
+
+4. **Error handling**: If a tool returns an error or empty result, acknowledge this to the user and suggest alternatives or next steps.
+
+5. **Text-only responses**: Only respond with plain text (without tool calls) when:
+   - No available tool can address the user's request
+   - You already have all the information needed from previous tool results
+   - The user is asking for clarification or a simple answer
+
+Available tools: ${toolNames}`,
     });
   } else if (!hasIncomingTools && !incomingHasSystem && Array.isArray(templateMessages)) {
     for (const m of templateMessages) {
@@ -536,6 +574,19 @@ function buildChatBody(request: ChatCompletionRequest, tokens: QoderTokens): any
   return body;
 }
 
+// Tool ID normalization: ensure all tool IDs match Anthropic's toolu_* format
+function normalizeToolCallId(id: string | undefined, index: number): string {
+  if (!id) {
+    // Generate toolu_* format ID if none provided
+    return `toolu_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 11)}`;
+  }
+  // If ID doesn't match Anthropic format, prefix it
+  if (!id.startsWith("toolu_")) {
+    return `toolu_${id}`;
+  }
+  return id;
+}
+
 interface ToolCallAcc {
   index: number;
   id: string;
@@ -656,6 +707,7 @@ export class QoderProvider extends BaseProvider {
     let fullContent = "";
     const toolCalls: ToolCallAcc[] = [];
     let finishReason: string | null = null;
+    let finalUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
     try {
       while (true) {
@@ -667,11 +719,19 @@ export class QoderProvider extends BaseProvider {
           if (line === "data: [DONE]") continue;
           try {
             const chunk = JSON.parse(line.slice(6));
+            // Extract usage from final chunk (has empty choices array)
+            if (chunk.usage && chunk.usage.total_tokens > 0) {
+              finalUsage = {
+                prompt_tokens: Number(chunk.usage.prompt_tokens) || 0,
+                completion_tokens: Number(chunk.usage.completion_tokens) || 0,
+                total_tokens: Number(chunk.usage.total_tokens) || 0,
+              };
+            }
             const delta = chunk.choices?.[0]?.delta;
             if (delta?.content) fullContent += delta.content;
             if (Array.isArray(delta?.tool_calls)) {
               for (const tc of delta.tool_calls) {
-                const idx = tc.index ?? 0;
+                const idx = tc.index ?? toolCalls.length;
                 if (!toolCalls[idx]) {
                   toolCalls[idx] = { index: idx, id: tc.id || "", type: "function", function: { name: "", arguments: "" } };
                 }
@@ -686,6 +746,12 @@ export class QoderProvider extends BaseProvider {
       }
     } finally {
       reader.releaseLock();
+    }
+
+    // Fall back to estimation if upstream didn't report usage
+    if (finalUsage.total_tokens === 0) {
+      const estimated = this.estimateMessagesTokens(request.messages);
+      finalUsage = { prompt_tokens: estimated, completion_tokens: this.estimateTokens(fullContent), total_tokens: estimated + this.estimateTokens(fullContent) };
     }
 
     const filledToolCalls = toolCalls.filter((t) => t && t.id);
@@ -703,10 +769,18 @@ export class QoderProvider extends BaseProvider {
         },
         finish_reason: finishReason || (filledToolCalls.length > 0 ? "tool_calls" : "stop"),
       }],
-      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      usage: finalUsage,
     };
 
-    return { ...result, success: true, response, stream: undefined };
+    return {
+      ...result,
+      success: true,
+      response,
+      stream: undefined,
+      tokensUsed: finalUsage.total_tokens,
+      promptTokens: finalUsage.prompt_tokens,
+      completionTokens: finalUsage.completion_tokens,
+    };
   }
 
   async chatCompletionStream(account: Account, request: ChatCompletionRequest): Promise<ProviderResult> {
@@ -750,6 +824,9 @@ export class QoderProvider extends BaseProvider {
     const model = request.model;
     const encoder = new TextEncoder();
 
+    // Track usage across the stream — will be emitted in final chunk
+    let accumulatedUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+
     const stream = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         const reader = upstream.getReader();
@@ -785,6 +862,11 @@ export class QoderProvider extends BaseProvider {
               const parsedDelta = parseSseLine(line);
               if (!parsedDelta) continue;
 
+              // Track usage from upstream (usually in final chunk)
+              if (parsedDelta.usage) {
+                accumulatedUsage = parsedDelta.usage;
+              }
+
               if (!sentRole) {
                 enqueue({ role: "assistant" });
                 sentRole = true;
@@ -803,9 +885,11 @@ export class QoderProvider extends BaseProvider {
                     idx = nextToolIdx++;
                     toolIndex.set(key, idx);
                   }
+                  // Normalize tool IDs to Anthropic format
+                  const normalizedId = normalizeToolCallId(tc.id, idx);
                   remapped.push({
                     index: idx,
-                    ...(tc.id ? { id: tc.id } : {}),
+                    id: normalizedId,
                     ...(tc.type ? { type: tc.type } : { type: "function" }),
                     ...(tc.function ? { function: tc.function } : {}),
                   });
@@ -821,6 +905,20 @@ export class QoderProvider extends BaseProvider {
           }
 
           if (!finishEmitted) enqueue({}, "stop");
+
+          // Emit final usage chunk before [DONE]
+          if (accumulatedUsage.total_tokens > 0) {
+            const usageChunk = {
+              id,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [],
+              usage: accumulatedUsage,
+            };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`));
+          }
+
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
@@ -835,7 +933,9 @@ export class QoderProvider extends BaseProvider {
     return {
       success: true,
       stream,
-      tokensUsed: 0,
+      tokensUsed: accumulatedUsage.total_tokens,
+      promptTokens: accumulatedUsage.prompt_tokens,
+      completionTokens: accumulatedUsage.completion_tokens,
       ...(refreshed ? { tokens: JSON.stringify(tokens) } : {}),
     };
   }
