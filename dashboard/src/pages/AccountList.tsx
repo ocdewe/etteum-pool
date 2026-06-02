@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Search, Trash2, RefreshCw, RotateCcw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Search, Trash2, RefreshCw, RotateCcw, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown, CheckCircle2, XCircle } from "lucide-react";
 import { formatDateTimeID } from "@/lib/utils";
 import { useTimedMessage } from "@/hooks/useTimedMessage";
 import {
@@ -14,6 +14,7 @@ import {
   loginAccounts,
   openPanel,
   toggleAccountEnabled,
+  toggleAllAccounts,
   warmupAccount,
   warmupAllAccounts,
 } from "@/lib/api";
@@ -122,6 +123,9 @@ function CodexQuotaCell({ codex, fallbackRemaining, fallbackLimit }: { codex?: C
   );
 }
 
+type SortKey = "email" | "status" | "enabled" | "credit" | "lastLogin";
+type SortDir = "asc" | "desc";
+
 export default function AccountList() {
   const { provider } = useParams<{ provider: string }>();
   const navigate = useNavigate();
@@ -132,6 +136,25 @@ export default function AccountList() {
   const perPage = 25;
   const { message, setMessage: setTimedMessage, clearMessage } = useTimedMessage<string>(null, 4000);
   const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
+  const [sortKey, setSortKey] = useState<SortKey>("email");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  function SortIcon({ column }: { column: SortKey }) {
+    if (sortKey !== column) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" />;
+    return sortDir === "asc"
+      ? <ArrowUp className="w-3 h-3 ml-1" />
+      : <ArrowDown className="w-3 h-3 ml-1" />;
+  }
 
   async function load() {
     setLoading(true);
@@ -195,13 +218,59 @@ export default function AccountList() {
     }
   }
 
-  const filtered = useMemo(() => {
-    return accounts.filter((a) => a.email.toLowerCase().includes(search.toLowerCase()));
-  }, [accounts, search]);
+  async function handleToggleAll(enabled: boolean) {
+    if (!provider) return;
+    const prev = accounts.map((a) => ({ id: a.id, enabled: a.enabled !== false }));
+    setAccounts((prev) => prev.map((a) => ({ ...a, enabled })));
+    try {
+      const res = await toggleAllAccounts(provider, enabled);
+      showSuccess(enabled ? `Aktifkan ${res.count} akun ${labelProvider(provider)}` : `Non-aktifkan ${res.count} akun ${labelProvider(provider)}`);
+    } catch (err) {
+      setAccounts((list) => list.map((a) => {
+        const orig = prev.find((p) => p.id === a.id);
+        return orig ? { ...a, enabled: orig.enabled } : a;
+      }));
+      showError(err);
+    }
+  }
 
-  useEffect(() => { setPage(1); }, [search, provider]);
+  const filtered = useMemo(() => {
+    let result = accounts.filter((a) => a.email.toLowerCase().includes(search.toLowerCase()));
+    if (statusFilter !== "all") {
+      result = result.filter((a) => a.status === statusFilter);
+    }
+    result.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "email":
+          cmp = a.email.localeCompare(b.email);
+          break;
+        case "status":
+          cmp = a.status.localeCompare(b.status);
+          break;
+        case "enabled":
+          cmp = (a.enabled === false ? 0 : 1) - (b.enabled === false ? 0 : 1);
+          break;
+        case "credit":
+          cmp = (a.quotaRemaining ?? 0) - (b.quotaRemaining ?? 0);
+          break;
+        case "lastLogin": {
+          const da = new Date(a.lastLoginAt || a.lastUsedAt || 0).getTime();
+          const db = new Date(b.lastLoginAt || b.lastUsedAt || 0).getTime();
+          cmp = da - db;
+          break;
+        }
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return result;
+  }, [accounts, search, statusFilter, sortKey, sortDir]);
+
+  useEffect(() => { setPage(1); }, [search, provider, statusFilter]);
 
   const errorCount = accounts.filter((a) => a.status === "error").length;
+  const enabledCount = accounts.filter((a) => a.enabled !== false).length;
+  const disabledCount = accounts.filter((a) => a.enabled === false).length;
 
   return (
     <div className="space-y-6">
@@ -216,7 +285,7 @@ export default function AccountList() {
             <p className="text-sm text-[var(--muted-foreground)] mt-1">{accounts.length} accounts</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
@@ -225,6 +294,12 @@ export default function AccountList() {
           </Button>
           <Button variant="outline" size="sm" onClick={handleRetryErrors} disabled={errorCount === 0}>
             <RotateCcw className="w-4 h-4 mr-2" /> Retry Errors ({errorCount})
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleToggleAll(true)} disabled={disabledCount === 0}>
+            <CheckCircle2 className="w-4 h-4 mr-2 text-green-400" /> Enable All ({disabledCount})
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => handleToggleAll(false)} disabled={enabledCount === 0}>
+            <XCircle className="w-4 h-4 mr-2 text-red-400" /> Disable All ({enabledCount})
           </Button>
         </div>
       </div>
@@ -236,10 +311,27 @@ export default function AccountList() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
-        <Input placeholder="Search accounts..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+      {/* Search & Filter */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)]" />
+          <Input placeholder="Search accounts..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          {(["all", "active", "exhausted", "error", "pending", "disabled"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
+                statusFilter === s
+                  ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--foreground)]"
+                  : "border-[var(--border)] text-[var(--muted-foreground)] hover:border-[var(--primary)]/50"
+              }`}
+            >
+              {s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Table */}
@@ -249,11 +341,21 @@ export default function AccountList() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[var(--border)]">
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Email</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Status</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Enabled</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Credit</th>
-                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Last Login</th>
+                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)]" onClick={() => handleSort("email")}>
+                    <span className="inline-flex items-center">Email<SortIcon column="email" /></span>
+                  </th>
+                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)]" onClick={() => handleSort("status")}>
+                    <span className="inline-flex items-center">Status<SortIcon column="status" /></span>
+                  </th>
+                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)]" onClick={() => handleSort("enabled")}>
+                    <span className="inline-flex items-center">Enabled<SortIcon column="enabled" /></span>
+                  </th>
+                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)]" onClick={() => handleSort("credit")}>
+                    <span className="inline-flex items-center">Credit<SortIcon column="credit" /></span>
+                  </th>
+                  <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4 cursor-pointer select-none hover:text-[var(--foreground)]" onClick={() => handleSort("lastLogin")}>
+                    <span className="inline-flex items-center">Last Login<SortIcon column="lastLogin" /></span>
+                  </th>
                   <th className="text-left text-xs font-medium text-[var(--muted-foreground)] uppercase tracking-wide p-4">Actions</th>
                 </tr>
               </thead>

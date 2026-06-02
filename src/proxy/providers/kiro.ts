@@ -341,8 +341,18 @@ export class KiroProvider extends BaseProvider {
         return result;
       }
 
-      if (response.status === 429 || response.status === 402) {
-        return { success: false, error: "Rate limited / quota exhausted", quotaExhausted: true };
+      if (response.status === 429) {
+        return { success: false, error: "Rate limited", rateLimited: true };
+      }
+
+      if (response.status === 402) {
+        // Payment required — check if account has PAYG/overage active.
+        // If so, this is likely a transient rate-limit, not true exhaustion.
+        const overage = this.getAccountOverage(account);
+        if (overage?.enabled && overage.remaining > 0) {
+          return { success: false, error: "Rate limited (PAYG active)", rateLimited: true };
+        }
+        return { success: false, error: "Quota exhausted", quotaExhausted: true };
       }
 
       if (!response.ok) {
@@ -389,8 +399,16 @@ export class KiroProvider extends BaseProvider {
         return result;
       }
 
-      if (response.status === 429 || response.status === 402) {
-        return { success: false, error: "Rate limited / quota exhausted", quotaExhausted: true };
+      if (response.status === 429) {
+        return { success: false, error: "Rate limited", rateLimited: true };
+      }
+
+      if (response.status === 402) {
+        const overage = this.getAccountOverage(account);
+        if (overage?.enabled && overage.remaining > 0) {
+          return { success: false, error: "Rate limited (PAYG active)", rateLimited: true };
+        }
+        return { success: false, error: "Quota exhausted", quotaExhausted: true };
       }
 
       if (!response.ok) {
@@ -531,6 +549,18 @@ export class KiroProvider extends BaseProvider {
     }
 
     return { kind: "session_expired", success: false, error: "Kiro session expired" };
+  }
+
+  /**
+   * Read overage info from account metadata (persisted by warmup).
+   * Used during live requests to decide if 402 is truly exhausted or just rate-limited.
+   */
+  private getAccountOverage(account: Account): { enabled: boolean; remaining: number } | null {
+    const meta = account.metadata as Record<string, unknown> | null;
+    if (!meta || typeof meta !== "object") return null;
+    const overage = meta.overage as { enabled?: boolean; remaining?: number } | null;
+    if (!overage || typeof overage !== "object") return null;
+    return { enabled: Boolean(overage.enabled), remaining: Number(overage.remaining || 0) };
   }
 
   private getProfileArn(tokens: KiroTokens): string {

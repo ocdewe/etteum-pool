@@ -341,6 +341,42 @@ function extractLatestUserPrompt(request: ChatCompletionRequest): string {
   return "";
 }
 
+function extractLatestUserImages(request: ChatCompletionRequest): any[] {
+  for (let i = request.messages.length - 1; i >= 0; i--) {
+    const msg = request.messages[i];
+    if (!msg || msg.role !== "user") continue;
+    if (!Array.isArray(msg.content)) continue;
+    const images: any[] = [];
+    for (const b of msg.content as any[]) {
+      if (!b || typeof b !== "object") continue;
+      if (b.type === "image_url" || b.type === "image") {
+        images.push(normalizeImageBlock(b));
+      }
+    }
+    if (images.length > 0) return images;
+  }
+  return [];
+}
+
+function normalizeImageBlock(block: any): any {
+  // OpenAI format: { type: "image_url", image_url: { url: "..." } }
+  if (block.type === "image_url" && block.image_url?.url) {
+    return block; // already in OpenAI format
+  }
+  // Anthropic format: { type: "image", source: { type: "base64", media_type: "...", data: "..." } }
+  if (block.type === "image" && block.source?.type === "base64") {
+    const { media_type, data } = block.source;
+    return {
+      type: "image_url",
+      image_url: {
+        url: `data:${media_type};base64,${data}`,
+      },
+    };
+  }
+  // Fallback: return as-is
+  return block;
+}
+
 function buildQoderMessages(request: ChatCompletionRequest, templateMessages: any[] | undefined, hasIncomingTools: boolean): any[] {
   const incomingHasSystem = request.messages.some((m) => m.role === "system");
   const result: any[] = [];
@@ -362,12 +398,13 @@ function buildQoderMessages(request: ChatCompletionRequest, templateMessages: an
 
   for (const m of request.messages) {
     if (typeof m.content === "string") {
-      result.push({ role: m.role, content: m.content });
+      result.push({ role: m.role, content: m.content, contents: [{ type: "text", text: m.content }] });
       continue;
     }
     if (Array.isArray(m.content)) {
       const blocks = m.content as any[];
       const textParts: string[] = [];
+      const imageParts: any[] = [];
       const toolCalls: any[] = [];
       const toolResults: { tool_call_id: string; content: string }[] = [];
 
@@ -375,6 +412,8 @@ function buildQoderMessages(request: ChatCompletionRequest, templateMessages: an
         if (!b || typeof b !== "object") continue;
         if (b.type === "text" && typeof b.text === "string") {
           textParts.push(b.text);
+        } else if (b.type === "image_url" || b.type === "image") {
+          imageParts.push(normalizeImageBlock(b));
         } else if (b.type === "tool_use") {
           toolCalls.push({
             id: b.id,
@@ -399,8 +438,15 @@ function buildQoderMessages(request: ChatCompletionRequest, templateMessages: an
         }
       }
 
+      const textContent = textParts.join("\n");
+
+      // Build contents array (Qoder native format) — text + images
+      const contentsArr: any[] = [];
+      if (textContent) contentsArr.push({ type: "text", text: textContent });
+      contentsArr.push(...imageParts);
+
       if (m.role === "assistant" && toolCalls.length > 0) {
-        const msg: any = { role: "assistant", content: textParts.join("\n") };
+        const msg: any = { role: "assistant", content: textContent, contents: [{ type: "text", text: textContent }] };
         msg.tool_calls = toolCalls;
         result.push(msg);
         continue;
@@ -410,15 +456,16 @@ function buildQoderMessages(request: ChatCompletionRequest, templateMessages: an
         for (const tr of toolResults) {
           result.push({ role: "tool", tool_call_id: tr.tool_call_id, content: tr.content });
         }
-        const text = textParts.join("\n");
-        if (text) result.push({ role: "user", content: text });
+        if (contentsArr.length > 0) {
+          result.push({ role: "user", content: textContent, contents: contentsArr });
+        }
         continue;
       }
 
-      result.push({ role: m.role, content: textParts.join("\n") });
+      result.push({ role: m.role, content: textContent, contents: contentsArr });
       continue;
     }
-    result.push({ role: m.role, content: "" });
+    result.push({ role: m.role, content: "", contents: [] });
   }
 
   return result;
@@ -426,6 +473,7 @@ function buildQoderMessages(request: ChatCompletionRequest, templateMessages: an
 
 function buildChatBody(request: ChatCompletionRequest, tokens: QoderTokens): any {
   const prompt = extractLatestUserPrompt(request);
+  const images = extractLatestUserImages(request);
   const cfg = MODEL_CONFIGS[request.model] || QODER_MODELS[0]!;
   const reqId = crypto.randomUUID();
   const hasIncomingTools = Array.isArray(request.tools) && request.tools.length > 0;
@@ -456,11 +504,24 @@ function buildChatBody(request: ChatCompletionRequest, tokens: QoderTokens): any
 
   if (!body.chat_context) body.chat_context = {};
   body.chat_context.text = { type: "text", text: prompt };
+  if (images.length > 0) {
+    body.chat_context.images = images;
+    // Also set imageUrls at chat_context level (some Qoder endpoints check this)
+    body.chat_context.imageUrls = images.map((img: any) => img.image_url?.url).filter(Boolean);
+  }
   if (!body.chat_context.extra) body.chat_context.extra = {};
   body.chat_context.extra.originalContent = { type: "text", text: prompt };
+  if (images.length > 0) {
+    body.chat_context.extra.images = images;
+  }
   if (!body.chat_context.extra.modelConfig) body.chat_context.extra.modelConfig = {};
   body.chat_context.extra.modelConfig.key = cfg.upstream;
   body.chat_context.extra.modelConfig.is_reasoning = cfg.is_reasoning;
+
+  // Set top-level image_urls (Qoder API also checks this field)
+  if (images.length > 0) {
+    body.image_urls = images.map((img: any) => img.image_url?.url).filter(Boolean);
+  }
 
   body.messages = buildQoderMessages(request, body.messages, hasIncomingTools);
 
@@ -869,7 +930,11 @@ export class QoderProvider extends BaseProvider {
       const remaining = Number(data.userQuota?.remaining ?? Math.max(0, limit - used));
       const resetAt = data.expiresAt ? new Date(data.expiresAt) : undefined;
 
-      const exceeded = data.isQuotaExceeded === true || remaining <= 0;
+      // 0/0 quota (limit=0, remaining=0) means the API doesn't report meaningful
+      // quota data — not that the account is truly exhausted. Only treat as
+      // exhausted if the API explicitly flags it OR remaining went negative OR
+      // there's a real quota (limit>0) that hit zero.
+      const exceeded = data.isQuotaExceeded === true || (remaining < 0) || (remaining <= 0 && limit > 0);
       const quota = { limit, remaining, used, resetAt, source: "qoder.openapi" };
 
       return {

@@ -381,6 +381,28 @@ class AccountPool {
   }
 
   /**
+   * Bulk toggle enabled flag for all accounts of a provider.
+   */
+  async setEnabledByProvider(provider: ProviderName, enabled: boolean): Promise<number> {
+    const result = await db
+      .update(accounts)
+      .set({
+        enabled,
+        updatedAt: new Date(),
+      })
+      .where(eq(accounts.provider, provider))
+      .returning();
+
+    const count = result.length;
+    this.invalidate(provider);
+    broadcast({
+      type: "provider_toggled",
+      data: { provider, enabled, count },
+    });
+    return count;
+  }
+
+  /**
    * Get pool statistics
    */
   async getStats(): Promise<{

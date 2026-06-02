@@ -391,6 +391,24 @@ accountsRouter.post("/:id/toggle", async (c) => {
 });
 
 /**
+ * POST /api/accounts/toggle-all - Bulk toggle enabled for all accounts of a provider
+ * Body: { provider: string, enabled: boolean }
+ */
+accountsRouter.post("/toggle-all", async (c) => {
+  const body = await c.req.json<{ provider: string; enabled: boolean }>();
+
+  if (!body.provider) {
+    return c.json({ error: "provider is required" }, 400);
+  }
+  if (typeof body.enabled !== "boolean") {
+    return c.json({ error: "enabled (boolean) is required" }, 400);
+  }
+
+  const count = await pool.setEnabledByProvider(body.provider as ProviderName, body.enabled);
+  return c.json({ provider: body.provider, enabled: body.enabled, count });
+});
+
+/**
  * DELETE /api/accounts/:id - Delete account
  */
 accountsRouter.delete("/:id", async (c) => {

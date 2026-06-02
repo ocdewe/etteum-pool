@@ -124,6 +124,7 @@ export interface ProviderResult {
   creditSource?: CreditSource;
   error?: string;
   quotaExhausted?: boolean;
+  rateLimited?: boolean; // 429 rate-limit (temporary, don't mark exhausted)
   tokens?: unknown; // New tokens after refresh (if refreshed during request)
 }
 

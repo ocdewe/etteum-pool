@@ -191,7 +191,13 @@ export async function routeRequest(
         throw new Error(result.error || `Invalid model: ${sanitizedRequest.model}`);
       }
 
-      // Handle quota exhaustion
+      // Handle rate limiting (429) — temporary, don't mark exhausted
+      if (result.rateLimited) {
+        lastError = result.error || "Rate limited";
+        continue; // Try next account without poisoning this one
+      }
+
+      // Handle quota exhaustion (402 without PAYG)
       if (result.quotaExhausted) {
         await pool.markExhausted(account.id);
         lastError = result.error || "Quota exhausted";

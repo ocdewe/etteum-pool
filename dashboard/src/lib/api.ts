@@ -240,6 +240,16 @@ export async function toggleAccountEnabled(id: number, enabled?: boolean) {
   );
 }
 
+export async function toggleAllAccounts(provider: string, enabled: boolean) {
+  return fetchApi<{ provider: string; enabled: boolean; count: number }>(
+    "/api/accounts/toggle-all",
+    {
+      method: "POST",
+      body: JSON.stringify({ provider, enabled }),
+    },
+  );
+}
+
 export async function loginAccount(id: number, options?: { headless?: boolean }) {
   return fetchApi(`/api/auth/login/${id}`, {
     method: "POST",
