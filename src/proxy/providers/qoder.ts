@@ -836,6 +836,24 @@ export class QoderProvider extends BaseProvider {
         let finishEmitted = false;
         const toolIndex = new Map<string, number>();
         let nextToolIdx = 0;
+        // Buffer tool call arguments to avoid forwarding fragmented chunks
+        const toolCallBuffers = new Map<number, { id: string; type: string; name: string; args: string }>();
+        let toolCallFlushed = false;
+
+        const flushToolCalls = () => {
+          if (toolCallFlushed) return;
+          toolCallFlushed = true;
+          const remapped: any[] = [];
+          for (const [idx, buf] of toolCallBuffers) {
+            remapped.push({
+              index: idx,
+              id: buf.id,
+              type: buf.type,
+              function: { name: buf.name, arguments: buf.args },
+            });
+          }
+          if (remapped.length > 0) enqueue({ tool_calls: remapped });
+        };
 
         const enqueue = (delta: any, finishReason: string | null = null) => {
           const chunk = {
@@ -877,7 +895,6 @@ export class QoderProvider extends BaseProvider {
               if (parsedDelta.content) enqueue({ content: parsedDelta.content });
 
               if (parsedDelta.toolCalls) {
-                const remapped: any[] = [];
                 for (const tc of parsedDelta.toolCalls) {
                   const key = typeof tc.index === "number" ? `idx-${tc.index}` : (tc.id || `tool-${nextToolIdx}`);
                   let idx = toolIndex.get(key);
@@ -885,26 +902,29 @@ export class QoderProvider extends BaseProvider {
                     idx = nextToolIdx++;
                     toolIndex.set(key, idx);
                   }
-                  // Normalize tool IDs to Anthropic format
                   const normalizedId = normalizeToolCallId(tc.id, idx);
-                  remapped.push({
-                    index: idx,
-                    id: normalizedId,
-                    ...(tc.type ? { type: tc.type } : { type: "function" }),
-                    ...(tc.function ? { function: tc.function } : {}),
-                  });
+                  if (!toolCallBuffers.has(idx)) {
+                    toolCallBuffers.set(idx, { id: normalizedId, type: tc.type || "function", name: "", args: "" });
+                  }
+                  const buf = toolCallBuffers.get(idx)!;
+                  if (tc.id) buf.id = normalizedId;
+                  if (tc.function?.name) buf.name = tc.function.name;
+                  if (tc.function?.arguments) buf.args += tc.function.arguments;
                 }
-                enqueue({ tool_calls: remapped });
               }
 
               if (parsedDelta.finishReason) {
+                flushToolCalls();
                 enqueue({}, parsedDelta.finishReason);
                 finishEmitted = true;
               }
             }
           }
 
-          if (!finishEmitted) enqueue({}, "stop");
+          if (!finishEmitted) {
+            flushToolCalls();
+            enqueue({}, "stop");
+          }
 
           // Emit final usage chunk before [DONE]
           if (accumulatedUsage.total_tokens > 0) {

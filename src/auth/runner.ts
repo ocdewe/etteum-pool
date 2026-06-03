@@ -692,7 +692,7 @@ export async function loginAccount(account: Account, options: LoginOptions = {})
 
     // For kiro-pro: if we already passed login phase (upgrade/payment steps), don't retry
     const isKiroProUpgrade = provider === "kiro-pro" && config.kiroProUpgrade;
-    const reachedUpgradeStep = streamedEvents.some((e) =>
+    const reachedUpgradeStep = (streamedEvents || []).some((e) =>
       e.type === "progress" && /upgrade|payment|billing|card|stripe|checkout/i.test((e as any).step || (e as any).message || "")
     );
     if (isKiroProUpgrade && reachedUpgradeStep) {
