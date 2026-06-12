@@ -250,6 +250,33 @@ export class CodeBuddyProvider extends BaseProvider {
             error: "Content moderation: Your input was flagged as potentially sensitive. Please rephrase your message."
           };
         }
+        // Auto-fallback: CodeBuddy upstream sometimes only supports streaming.
+        // Detect "Non-stream chat request is currently not supported" and retry with stream=true,
+        // then aggregate the SSE chunks into a non-stream chat.completion response.
+        if (errText.includes("Non-stream chat request is currently not supported") || errText.includes("\"code\":11101")) {
+          try {
+            const streamResponse = await this.makeRequest(tokens, request, true);
+            if (streamResponse.status === 401 || streamResponse.status === 403) {
+              return { success: false, error: "Session expired, re-login required" };
+            }
+            if (streamResponse.status === 429) {
+              return { success: false, error: "Rate limited / quota exhausted", quotaExhausted: true };
+            }
+            if (!streamResponse.ok) {
+              const streamErr = await streamResponse.text();
+              if (streamErr.includes("敏感内容") || streamErr.includes("系统检测到")) {
+                return {
+                  success: false,
+                  error: "Content moderation: Your input was flagged as potentially sensitive. Please rephrase your message."
+                };
+              }
+              return { success: false, error: `CodeBuddy API error (${streamResponse.status}): ${streamErr}` };
+            }
+            return this.parseResponse(streamResponse, request.model);
+          } catch (fallbackErr) {
+            return { success: false, error: `CodeBuddy stream fallback failed: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}` };
+          }
+        }
         return { success: false, error: `CodeBuddy API error (${response.status}): ${errText}` };
       }
 
@@ -523,7 +550,14 @@ export class CodeBuddyProvider extends BaseProvider {
 
     // Handle -thinking suffix
     const isThinking = request.model.endsWith("-thinking");
-    const actualModel = isThinking ? request.model.replace("-thinking", "") : request.model;
+    const baseModel = isThinking ? request.model.replace("-thinking", "") : request.model;
+
+    // Map PoolProxy model IDs to CodeBuddy upstream model names.
+    // CodeBuddy upstream rejects the "cb-" prefix; e.g. "cb-opus-4.6" must be sent as "claude-opus-4.6".
+    const CB_MODEL_MAP: Record<string, string> = {
+      "cb-opus-4.6": "claude-opus-4.6",
+    };
+    const actualModel = CB_MODEL_MAP[baseModel] ?? baseModel;
 
     // Clean messages: convert Anthropic format to OpenAI format for CodeBuddy API
     // Apply pudidil filters to remove Claude Code CLI detection patterns

@@ -59,8 +59,32 @@ export default function Models() {
   const filtered = filter === "all" ? models : models.filter((m) => m.owned_by === filter);
 
   async function copyModelId(modelId: string) {
-    await navigator.clipboard.writeText(modelId);
-    setCopiedModel(modelId);
+    try {
+      // Modern API works only on https / localhost
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(modelId);
+      } else {
+        // Fallback for plain http (LAN / Tailscale IPs)
+        const textarea = document.createElement("textarea");
+        textarea.value = modelId;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try {
+          document.execCommand("copy");
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+      setCopiedModel(modelId);
+    } catch (err) {
+      console.error("copy failed:", err);
+      // Last resort: show prompt so the user can copy manually
+      window.prompt("Copy model ID:", modelId);
+    }
   }
 
   // Group by provider
