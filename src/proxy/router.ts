@@ -9,6 +9,8 @@ import { MoclawProvider } from "./providers/moclaw";
 import { CodexProvider } from "./providers/codex";
 import { PioneerProvider } from "./providers/pioneer";
 import { QoderProvider } from "./providers/qoder";
+import { AlibabaProvider } from "./providers/alibaba";
+import { CustomProvider } from "./providers/custom";
 import { isNonAccountRequestError } from "./errors";
 import { applyPudidilFilters } from "./filters";
 import { pool } from "./pool";
@@ -24,6 +26,8 @@ const moclawProvider = new MoclawProvider();
 const codexProvider = new CodexProvider();
 const pioneerProvider = new PioneerProvider();
 const qoderProvider = new QoderProvider();
+const alibabaProvider = new AlibabaProvider();
+const customProvider = new CustomProvider();
 
 const providers = {
   kiro: kiroProvider,
@@ -36,6 +40,8 @@ const providers = {
   codex: codexProvider,
   pioneer: pioneerProvider,
   qoder: qoderProvider,
+  alibaba: alibabaProvider,
+  custom: customProvider,
 } as const;
 
 type ProviderName = keyof typeof providers;
@@ -273,7 +279,8 @@ export async function routeRequest(
 /**
  * Get all available models across all providers
  */
-export function getAllModels() {
+export async function getAllModels() {
+  const customModels = await customProvider.loadModelsFromDB();
   return [
     ...kiroProvider.getModels(),
     ...kiroProProvider.getModels(),
@@ -285,6 +292,8 @@ export function getAllModels() {
     ...codexProvider.getModels(),
     ...pioneerProvider.getModels(),
     ...qoderProvider.getModels(),
+    ...alibabaProvider.getModels(),
+    ...customModels,
   ];
 }
 

@@ -7,6 +7,7 @@ import { vccRouter } from "./vcc";
 import { proxyPoolRouter } from "./proxy-pool";
 import { imageStudioRouter } from "./image-studio";
 import { filtersRouter } from "./filters";
+import { customProviderRouter } from "./custom-providers";
 
 export const apiRouter = new Hono();
 
@@ -18,9 +19,10 @@ apiRouter.route("/vcc", vccRouter);
 apiRouter.route("/proxy-pool", proxyPoolRouter);
 apiRouter.route("/image-studio", imageStudioRouter);
 apiRouter.route("/filters", filtersRouter);
+apiRouter.route("/custom-providers", customProviderRouter);
 
 apiRouter.get("/providers", (c) => {
-  return c.json({ data: ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw"] });
+  return c.json({ data: ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw", "codex", "pioneer", "qoder", "alibaba", "custom"] });
 });
 
 // Health check

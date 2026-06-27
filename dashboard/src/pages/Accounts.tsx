@@ -29,7 +29,7 @@ import {
   type AutoWarmupStatus,
 } from "@/lib/api";
 
-type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex" | "pioneer" | "qoder";
+type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex" | "pioneer" | "qoder" | "alibaba" | "custom";
 
 interface Account {
   id: number;
@@ -40,7 +40,7 @@ interface Account {
   quotaRemaining?: number;
 }
 
-const providers: Provider[] = ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw", "codex", "pioneer", "qoder"];
+const providers: Provider[] = ["kiro", "kiro-pro", "codebuddy", "canva", "zai", "moclaw", "codex", "pioneer", "qoder", "alibaba", "custom"];
 
 function labelProvider(provider: string) {
   if (provider === "kiro-pro") return "Kiro Pro";
@@ -49,6 +49,8 @@ function labelProvider(provider: string) {
   if (provider === "moclaw") return "Moclaw";
   if (provider === "codex") return "Codex";
   if (provider === "qoder") return "Qoder";
+  if (provider === "alibaba") return "Alibaba";
+  if (provider === "custom") return "Custom";
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
@@ -251,7 +253,34 @@ export default function Accounts() {
   }
 
   async function handleBulkImport() {
-    if (!addDialogProvider || !bulkText.trim()) { showError(new Error("Paste email|password lines")); return; }
+    if (!addDialogProvider || !bulkText.trim()) { showError(new Error("Paste lines to import")); return; }
+
+    // Alibaba: direct API create (no browser login needed)
+    if (addDialogProvider === "alibaba") {
+      const lines = bulkText.trim().split("\n").map(l => l.trim()).filter(Boolean);
+      let success = 0, failed = 0, errors: string[] = [];
+      for (const line of lines) {
+        const parts = line.split("|");
+        if (parts.length < 2) { failed++; errors.push(`Invalid format: ${line.slice(0, 30)}...`); continue; }
+        const email = parts[0].trim();
+        const apiKey = parts.slice(1).join("|").trim();
+        if (!email || !apiKey) { failed++; errors.push(`Missing email or key: ${line.slice(0, 30)}...`); continue; }
+        try {
+          await createAccount({ email, password: apiKey, provider: "alibaba" });
+          success++;
+        } catch (err) {
+          failed++;
+          errors.push(`${email}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      showSuccess(`Import selesai: ${success} berhasil, ${failed} gagal${errors.length ? " — " + errors.slice(0, 3).join("; ") : ""}`);
+      setBulkText("");
+      setAddDialogProvider(null);
+      await load();
+      return;
+    }
+
+    // Other providers: use auth import (browser login)
     try {
       const opts: any = { headless: bulkHeadless, browserEngine: bulkBrowserEngine, concurrency: bulkConcurrency };
       const res = await importAccounts(bulkText, [addDialogProvider], opts) as any;
@@ -463,6 +492,8 @@ export default function Accounts() {
                 ? "Add via browser login or instant login with API key/token."
                 : addDialogProvider === "qoder"
                 ? "Add via PAT, bulk Google accounts, or single account."
+                : addDialogProvider === "alibaba"
+                ? "Add DashScope API key accounts. No browser login needed."
                 : `Add account for ${addDialogProvider ? labelProvider(addDialogProvider) : "this provider"}.`}
             </DialogDescription>
           </DialogHeader>
@@ -479,6 +510,15 @@ export default function Accounts() {
               <button onClick={() => setAddMode("single")}
                 className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "single" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
               >Single</button>
+            </div>
+          ) : addDialogProvider === "alibaba" ? (
+            <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
+              <button onClick={() => setAddMode("single")}
+                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "single" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
+              >Single (Email|Key)</button>
+              <button onClick={() => setAddMode("bulk")}
+                className={`flex-1 rounded px-3 py-1.5 text-xs font-medium transition-colors ${addMode === "bulk" ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)]"}`}
+              >Bulk (Email|Key)</button>
             </div>
           ) : addDialogProvider === "qoder" ? (
             <div className="flex gap-1 rounded-md bg-[var(--secondary)] p-1">
@@ -543,8 +583,28 @@ export default function Accounts() {
             </div>
           )}
 
-          {/* Bulk mode (all providers) */}
-          {addMode === "bulk" && (
+          {/* Alibaba bulk mode (email|api-key, no browser) */}
+          {addMode === "bulk" && addDialogProvider === "alibaba" && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-[var(--foreground)]">Accounts (email|api-key per baris)</label>
+                <textarea
+                  value={bulkText}
+                  onChange={(e) => setBulkText(e.target.value)}
+                  className="mt-1 w-full h-40 rounded-md border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-mono text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)] resize-none"
+                  placeholder={"akun1@domain.com|sk-xxx...\nakun2@domain.com|sk-yyy..."}
+                />
+                <p className="mt-1 text-xs text-[var(--muted-foreground)]">Satu akun per baris, format: email|api-key</p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setAddDialogProvider(null)}>Cancel</Button>
+                <Button onClick={handleBulkImport}>Import Accounts</Button>
+              </div>
+            </div>
+          )}
+
+          {/* Bulk mode (other providers) */}
+          {addMode === "bulk" && addDialogProvider !== "alibaba" && (
             <div className="space-y-4">
               <div>
                 <label className="text-sm text-[var(--foreground)]">Accounts (email|password per baris)</label>
@@ -585,8 +645,26 @@ export default function Accounts() {
             </div>
           )}
 
-          {/* Single mode (all providers) */}
-          {addMode === "single" && (
+          {/* Alibaba single mode (Email + API Key) */}
+          {addMode === "single" && addDialogProvider === "alibaba" && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-[var(--foreground)]">Email</label>
+                <Input value={addForm.email} onChange={(e) => setAddForm({ ...addForm, email: e.target.value })} placeholder="akun@domain.com" className="mt-1" />
+              </div>
+              <div>
+                <label className="text-sm text-[var(--foreground)]">API Key</label>
+                <Input value={addForm.password} onChange={(e) => setAddForm({ ...addForm, password: e.target.value })} type="password" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx" className="mt-1 font-mono" />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setAddDialogProvider(null)}>Cancel</Button>
+                <Button onClick={handleAdd}>Add Account</Button>
+              </div>
+            </div>
+          )}
+
+          {/* Single mode (other providers) */}
+          {addMode === "single" && addDialogProvider !== "alibaba" && (
             <div className="space-y-4">
               <div>
                 <label className="text-sm text-[var(--foreground)]">Email</label>

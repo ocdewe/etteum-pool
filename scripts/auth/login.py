@@ -20,6 +20,7 @@ from app.providers.moclaw import MoclawProviderAdapter
 from app.providers.codex import CodexProviderAdapter
 from app.providers.pioneer import PioneerProviderAdapter
 from app.providers.qoder import QoderProviderAdapter
+from app.providers.alibaba import AlibabaProviderAdapter
 from app.providers.base import NormalizedAccount
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import BatcherError, RetryableBatcherError

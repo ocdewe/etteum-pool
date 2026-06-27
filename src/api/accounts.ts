@@ -55,7 +55,7 @@ accountsRouter.get("/:id", async (c) => {
  */
 accountsRouter.post("/", async (c) => {
   const body = await c.req.json<{
-    provider: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex" | "pioneer" | "qoder";
+    provider: "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "moclaw" | "codex" | "pioneer" | "qoder" | "alibaba" | "custom";
     email?: string;
     password?: string;
     personalToken?: string;
@@ -139,8 +139,13 @@ accountsRouter.post("/", async (c) => {
       data: { id: created.id, provider: created.provider, email: created.email },
     });
 
-    if (!body.tokens) {
+    if (!body.tokens && body.provider !== "alibaba") {
       loginQueue.enqueue(created.id, { browserEngine: body.browserEngine, headless: body.headless });
+    }
+    // Alibaba: mark as active immediately (API key auth, no login needed)
+    if (body.provider === "alibaba" && !body.tokens) {
+      await db.update(accounts).set({ status: "active", updatedAt: new Date() }).where(eq(accounts.id, created.id));
+      created.status = "active";
     }
 
     return c.json(

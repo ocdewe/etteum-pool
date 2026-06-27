@@ -19,7 +19,7 @@ import {
   warmupAllAccounts,
 } from "@/lib/api";
 
-type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "windsurf" | "moclaw" | "codex" | "pioneer" | "qoder";
+type Provider = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "windsurf" | "moclaw" | "codex" | "pioneer" | "qoder" | "alibaba" | "custom";
 type Status = "active" | "exhausted" | "error" | "pending" | "disabled";
 
 interface CodexQuotaWindow {
@@ -63,6 +63,8 @@ const statusVariants: Record<string, "success" | "warning" | "error" | "secondar
 };
 
 function labelProvider(provider: string) {
+  if (provider === "alibaba") return "Alibaba";
+  if (provider === "custom") return "Custom";
   return provider === "codebuddy" ? "CodeBuddy" : provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 

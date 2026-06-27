@@ -33,7 +33,7 @@
   "version": "3",
   "chat_prompt": "",
   "parameters": {
-    "max_tokens": 32768
+    "max_tokens": 65536
   },
   "aliyun_user_type": "personal_standard",
   "session_type": "qodercli",

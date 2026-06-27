@@ -5,7 +5,7 @@ import type { Account } from "../db/schema";
 import { broadcast } from "../ws/index";
 import { config } from "../config";
 
-export type ProviderName = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "windsurf" | "moclaw" | "codex" | "pioneer" | "qoder";
+export type ProviderName = "kiro" | "kiro-pro" | "codebuddy" | "canva" | "zai" | "windsurf" | "moclaw" | "codex" | "pioneer" | "qoder" | "alibaba" | "custom";
 
 interface PoolState {
   lastIndex: Map<ProviderName, number>;
@@ -70,6 +70,18 @@ class AccountPool {
    * Get the next available account for a provider using configured method.
    */
   async getNextAccount(provider: ProviderName): Promise<Account | null> {
+    // For custom provider, check if a specific account ID was requested
+    if (provider === "custom") {
+      const targetId = (this as any)._customAccountId;
+      if (targetId) {
+        (this as any)._customAccountId = null;
+        const [account] = await db.select().from(accounts).where(
+          and(eq(accounts.id, targetId), eq(accounts.provider, "custom"), eq(accounts.enabled, true))
+        );
+        if (account) return account;
+      }
+    }
+
     const activeAccounts = await this.getActiveAccounts(provider);
 
     if (activeAccounts.length === 0) {
@@ -250,6 +262,22 @@ class AccountPool {
     if (m === "deepseek-v3-2-volc") return "codebuddy";
     if (m === "enowx-default") return "codebuddy";
     if (m.startsWith("kimi-")) return "codebuddy";
+
+    // === ALIBABA (DashScope) ===
+    if (m.startsWith("ali-")) return "alibaba";
+
+    // === CUSTOM (OpenAI-compatible) ===
+    // Custom providers use account_id prefix: "c{AccountId}-{model}"
+    if (/^c\d+-/.test(m)) {
+      // Extract account ID and load that specific account
+      const match = m.match(/^c(\d+)-/);
+      if (match) {
+        const accountId = parseInt(match[1]);
+        // Store the target account ID for the router to use
+        (this as any)._customAccountId = accountId;
+      }
+      return "custom";
+    }
 
     // === KIRO (Standard tier) ===
     if (m === "auto") return "kiro";

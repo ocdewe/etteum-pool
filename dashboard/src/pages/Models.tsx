@@ -1,8 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Cpu, Brain, Sparkles, Image, Copy, Check } from "lucide-react";
+import { Cpu, Brain, Sparkles, Image, Copy, Check, Play, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { fetchModels } from "@/lib/api";
+import { fetchModels, testModel } from "@/lib/api";
 import { useTimedMessage } from "@/hooks/useTimedMessage";
 
 interface ModelData {
@@ -45,6 +45,7 @@ export default function Models() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
   const { message: copiedModel, setMessage: setCopiedModel } = useTimedMessage<string>(null, 1500);
+  const [testResults, setTestResults] = useState<Record<string, { loading?: boolean; ok?: boolean; content?: string; error?: string; latencyMs?: number }>>({});
 
   useEffect(() => {
     fetchModels()
@@ -85,6 +86,12 @@ export default function Models() {
       // Last resort: show prompt so the user can copy manually
       window.prompt("Copy model ID:", modelId);
     }
+  }
+
+  async function handleTestModel(modelId: string) {
+    setTestResults((prev) => ({ ...prev, [modelId]: { loading: true } }));
+    const result = await testModel(modelId);
+    setTestResults((prev) => ({ ...prev, [modelId]: result }));
   }
 
   // Group by provider
@@ -197,6 +204,51 @@ export default function Models() {
                           {formatNumber(model.max_output)}
                         </p>
                       </div>
+                    </div>
+
+                    {/* Test Button */}
+                    <div className="pt-1">
+                      {testResults[model.id] && !testResults[model.id].loading ? (
+                        <div className={`text-[10px] rounded-md px-2 py-1.5 ${
+                          testResults[model.id].ok
+                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                            : "bg-red-500/10 text-red-400 border border-red-500/20"
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">
+                              {testResults[model.id].ok ? "✅ OK" : "❌ FAIL"}
+                            </span>
+                            {testResults[model.id].latencyMs !== undefined && (
+                              <span className="text-[var(--muted-foreground)]">{testResults[model.id].latencyMs}ms</span>
+                            )}
+                          </div>
+                          {testResults[model.id].ok && testResults[model.id].content && (
+                            <p className="mt-0.5 truncate opacity-70">"{testResults[model.id].content}"</p>
+                          )}
+                          {testResults[model.id].error && (
+                            <p className="mt-0.5 truncate opacity-70">{testResults[model.id].error}</p>
+                          )}
+                          <button
+                            onClick={() => handleTestModel(model.id)}
+                            className="mt-1 text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] underline"
+                          >
+                            Test again
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleTestModel(model.id)}
+                          disabled={testResults[model.id]?.loading}
+                          className="w-full flex items-center justify-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--secondary)]/50 px-2 py-1.5 text-[10px] font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--primary)]/50 transition-colors disabled:opacity-50"
+                        >
+                          {testResults[model.id]?.loading ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Play className="w-3 h-3" />
+                          )}
+                          {testResults[model.id]?.loading ? "Testing..." : "Test"}
+                        </button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

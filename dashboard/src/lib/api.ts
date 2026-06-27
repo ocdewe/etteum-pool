@@ -204,6 +204,37 @@ export async function fetchModels() {
   return fetchApi("/v1/models");
 }
 
+export async function testModel(modelId: string): Promise<{ ok: boolean; content?: string; error?: string; latencyMs?: number }> {
+  const start = Date.now();
+  try {
+    const res = await fetch(`${API_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${getApiKey()}`,
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: "Reply with only: OK" }],
+        max_tokens: 10,
+      }),
+    });
+    const latencyMs = Date.now() - start;
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 150)}`, latencyMs };
+    }
+    const data = await res.json() as any;
+    if (data.error) {
+      return { ok: false, error: data.error.message || JSON.stringify(data.error), latencyMs };
+    }
+    const content = data.choices?.[0]?.message?.content || "";
+    return { ok: true, content: content.slice(0, 100), latencyMs };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), latencyMs: Date.now() - start };
+  }
+}
+
 export async function fetchSettings() {
   return fetchApi("/api/settings");
 }

@@ -225,7 +225,8 @@ statsRouter.get("/models", async (c) => {
     ? sql`${usageSummary.bucket} >= ${new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()}`
     : sql`1=1`;
 
-  const modelMeta = new Map(getAllModels().map((model) => [model.id, model]));
+  const allModels = await getAllModels();
+  const modelMeta = new Map(allModels.map((model) => [model.id, model]));
   const modelStats = await db
     .select({
       provider: usageSummary.provider,

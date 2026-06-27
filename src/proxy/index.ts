@@ -456,8 +456,8 @@ async function handleChatCompletion(body: ChatCompletionRequest) {
 /**
  * GET /v1/models - List available models
  */
-proxyRouter.get("/v1/models", (c) => {
-  const models = getAllModels();
+proxyRouter.get("/v1/models", async (c) => {
+  const models = await getAllModels();
   return c.json({
     object: "list",
     data: models,

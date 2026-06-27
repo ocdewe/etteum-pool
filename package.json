@@ -13,7 +13,11 @@
   },
   "dependencies": {
     "cbor-x": "^1.6.4",
-    "playwright": "^1.40.0"
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.23",
+    "playwright": "^1.40.0",
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@types/bun": "latest",
